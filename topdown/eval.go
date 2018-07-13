@@ -192,7 +192,7 @@ func (e *eval) evalStep(index int, iter evalIterator) error {
 			})
 		} else {
 
-			if e.saveSet != nil {
+			if e.partial() {
 				// Check if call can be evaluated during partial eval. Some
 				// calls, such as time.now_ns() should not be evaluated during
 				// partial evaluation.
