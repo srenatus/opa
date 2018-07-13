@@ -203,6 +203,17 @@ func (e *eval) evalStep(index int, iter evalIterator) error {
 						break
 					}
 				}
+				// if any of the arguments are unknown, the call also cannot be
+				// evaluated.
+				for _, t := range terms[1:] {
+					vis := ast.NewVarVisitor()
+					ast.Walk(vis, t)
+					unknownVars := vis.Vars()
+					if len(unknownVars) != 0 {
+						mustSave = true
+						break
+					}
+				}
 				if mustSave || e.saveSet.ContainsRecursiveAny(plugSlice(terms[1:], e.bindings)) {
 					return e.saveCall(terms[0], terms[1:len(terms)-1], terms[len(terms)-1], func() error {
 						return e.evalExpr(index+1, iter)
