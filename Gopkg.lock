@@ -20,6 +20,15 @@
   revision = "c7ce16629ff4cd059ed96ed06419dd3856fd3577"
 
 [[projects]]
+  branch = "travis-1.9"
+  name = "github.com/golang/lint"
+  packages = [
+    ".",
+    "golint"
+  ]
+  revision = "883fe33ffc4344bad1ecd881f61afd5ec5d80e0a"
+
+[[projects]]
   name = "github.com/golang/protobuf"
   packages = ["proto"]
   revision = "7716a980bceefe9a0213654823d9ea62d23b87a2"
@@ -46,6 +55,16 @@
   packages = ["pbutil"]
   revision = "c12348ce28de40eed0136aa2b644d0ee0650e56c"
   version = "v1.0.1"
+
+[[projects]]
+  name = "github.com/mna/pigeon"
+  packages = [
+    ".",
+    "ast",
+    "builder"
+  ]
+  revision = "9df264905d4734c0133161d8c67828ff522b154a"
+  version = "v1.0.0"
 
 [[projects]]
   name = "github.com/olekukonko/tablewriter"
@@ -138,6 +157,21 @@
   revision = "f02c79500a9c629cd7cf2f3abadbbf2f5a9161d3"
 
 [[projects]]
+  branch = "master"
+  name = "golang.org/x/tools"
+  packages = [
+    "cmd/goimports",
+    "go/ast/astutil",
+    "go/gcexportdata",
+    "go/internal/gcimporter",
+    "go/types/typeutil",
+    "imports",
+    "internal/fastwalk",
+    "internal/gopathwalk"
+  ]
+  revision = "f60e5f99f0816fc2d9ecb338008ea420248d2943"
+
+[[projects]]
   name = "gopkg.in/fsnotify.v1"
   packages = ["."]
   revision = "c2828203cd70a50dcccfb2761f8b1f8ceef9a8e9"
@@ -151,6 +185,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "118ce0fb64f32cb0fa14e5be80628d033e9219b7cde0bbf76a19aa94a72f94f5"
+  inputs-digest = "0f05ef064709857b4ea5776c13aadfb0e40c5c24a61f7bed461bb00aef26dea3"
   solver-name = "gps-cdcl"
   solver-version = 1

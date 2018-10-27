@@ -24,6 +24,11 @@
 #   go-tests = true
 #   unused-packages = true
 
+required = [
+  "github.com/mna/pigeon",
+  "golang.org/x/tools/cmd/goimports",
+  "github.com/golang/lint/golint"
+]
 
 [[constraint]]
   name = "github.com/OneOfOne/xxhash"
