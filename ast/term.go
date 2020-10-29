@@ -122,7 +122,7 @@ func ValueFromReader(r io.Reader) (Value, error) {
 
 // As converts v into a Go native type referred to by x.
 func As(v Value, x interface{}) error {
-	return util.NewJSONDecoder(bytes.NewBufferString(v.String())).Decode(x)
+	return util.NewJSONDecoder(strings.NewReader(v.String())).Decode(x)
 }
 
 // Resolver defines the interface for resolving references to native Go values.
@@ -841,13 +841,9 @@ func (ref Ref) Insert(x *Term, pos int) Ref {
 		panic("illegal index")
 	}
 	cpy := make(Ref, len(ref)+1)
-	for i := 0; i < pos; i++ {
-		cpy[i] = ref[i]
-	}
+	copy(cpy, ref[:pos])
 	cpy[pos] = x
-	for i := pos; i < len(ref); i++ {
-		cpy[i+1] = ref[i]
-	}
+	copy(cpy[pos+1:], ref[pos:])
 	return cpy
 }
 
@@ -855,16 +851,12 @@ func (ref Ref) Insert(x *Term, pos int) Ref {
 // other will be converted to a string.
 func (ref Ref) Extend(other Ref) Ref {
 	dst := make(Ref, len(ref)+len(other))
-	for i := range ref {
-		dst[i] = ref[i]
-	}
+	copy(dst, ref)
 	head := other[0].Copy()
 	head.Value = String(head.Value.(Var))
 	offset := len(ref)
 	dst[offset] = head
-	for i := range other[1:] {
-		dst[offset+i+1] = other[i+1]
-	}
+	copy(dst[offset+1:], other[1:])
 	return dst
 }
 
@@ -874,12 +866,8 @@ func (ref Ref) Concat(terms []*Term) Ref {
 		return ref
 	}
 	cpy := make(Ref, len(ref)+len(terms))
-	for i := range ref {
-		cpy[i] = ref[i]
-	}
-	for i := range terms {
-		cpy[len(ref)+i] = terms[i]
-	}
+	copy(cpy, ref)
+	copy(cpy[len(ref):], terms)
 	return cpy
 }
 
@@ -1109,9 +1097,7 @@ func (arr *Array) Get(pos *Term) *Term {
 // Sorted returns a new Array that contains the sorted elements of arr.
 func (arr *Array) Sorted() *Array {
 	cpy := make([]*Term, len(arr.elems))
-	for i := range cpy {
-		cpy[i] = arr.elems[i]
-	}
+	copy(cpy, arr.elems)
 	sort.Sort(termSlice(cpy))
 	a := NewArray(cpy...)
 	a.hash = arr.hash
@@ -2302,7 +2288,7 @@ func (sc *SetComprehension) String() string {
 	return "{" + sc.Term.String() + " | " + sc.Body.String() + "}"
 }
 
-// Call represents as function call in the language.
+// Call represents a function call in the language.
 type Call []*Term
 
 // CallTerm returns a new Term with a Call value defined by terms. The first
@@ -2353,9 +2339,7 @@ func (c Call) String() string {
 
 func objectElemSliceSorted(a objectElemSlice) objectElemSlice {
 	b := make(objectElemSlice, len(a))
-	for i := range b {
-		b[i] = a[i]
-	}
+	copy(b, a)
 	sort.Sort(b)
 	return b
 }
