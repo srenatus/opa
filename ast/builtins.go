@@ -5,6 +5,7 @@
 package ast
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/open-policy-agent/opa/types"
@@ -2236,4 +2237,7 @@ func init() {
 	for _, b := range DefaultBuiltins {
 		RegisterBuiltin(b)
 	}
+	sort.Slice(Builtins, func(i, j int) bool {
+		return Builtins[i].Name < Builtins[j].Name
+	})
 }

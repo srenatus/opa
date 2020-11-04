@@ -6,7 +6,6 @@ package ast
 
 import (
 	"io"
-	"sort"
 
 	"github.com/open-policy-agent/opa/util"
 )
@@ -19,20 +18,9 @@ type Capabilities struct {
 
 // CapabilitiesForThisVersion returns the capabilities of this version of OPA.
 func CapabilitiesForThisVersion() *Capabilities {
-
-	f := &Capabilities{
-		Builtins: []*Builtin{},
+	return &Capabilities{
+		Builtins: Builtins,
 	}
-
-	for _, bi := range Builtins {
-		f.Builtins = append(f.Builtins, bi)
-	}
-
-	sort.Slice(f.Builtins, func(i, j int) bool {
-		return f.Builtins[i].Name < f.Builtins[j].Name
-	})
-
-	return f
 }
 
 // LoadCapabilitiesJSON loads a JSON serialized capabilities structure from the reader r.
