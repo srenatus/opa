@@ -128,14 +128,10 @@ func (p *Profiler) Trace(event *topdown.Event) {
 	p.TraceEvent(*event)
 }
 
-// TraceEvent updates the coverage state.
+// TraceEvent records the event for profiling evaluations.
 func (p *Profiler) TraceEvent(event topdown.Event) {
 	switch event.Op {
-	case topdown.EvalOp:
-		if expr, ok := event.Node.(*ast.Expr); ok && expr != nil {
-			p.processExpr(expr, event.Op)
-		}
-	case topdown.RedoOp:
+	case topdown.EvalOp, topdown.RedoOp:
 		if expr, ok := event.Node.(*ast.Expr); ok && expr != nil {
 			p.processExpr(expr, event.Op)
 		}
