@@ -609,6 +609,47 @@ func TestCheckMatchErrors(t *testing.T) {
 	}
 }
 
+func TestCheckMatchWithWithStmtOfDifferentType(t *testing.T) {
+
+	tests := []struct {
+		note, module string
+	}{
+		{
+			note: "with in equals",
+			module: `
+				package with_type
+				b = true { true }
+				a = x { x = data.with_type.b }
+				c = true { data.with_type.a = 1 with data.with_type.b as 1 }`,
+		},
+		{
+			note: "with in builtin func call",
+			module: `
+				package with_call
+				b = true { true }
+				a = x { x = data.with_call.b }
+				c = true { lower(data.with_call.a) with data.with_call.b as "foo" }`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.note, func(t *testing.T) {
+			module := MustParseModule(tc.module)
+			var elems []util.T
+			for _, r := range module.Rules {
+				elems = append(elems, util.T(r))
+			}
+			lower := map[string]*Builtin{
+				"lower": BuiltinMap["lower"],
+			}
+			_, err := newTypeChecker().CheckTypes(newTypeChecker().checkLanguageBuiltins(nil, lower), elems)
+			if len(err) != 0 {
+				t.Error(err)
+			}
+		})
+	}
+}
+
 func TestCheckBuiltinErrors(t *testing.T) {
 
 	RegisterBuiltin(&Builtin{
