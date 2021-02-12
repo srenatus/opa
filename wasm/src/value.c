@@ -19,7 +19,8 @@ static void __opa_object_insert_elem(opa_object_t *obj, opa_object_elem_t *new, 
 static void __opa_set_add_elem(opa_set_t *set, opa_set_elem_t *new, size_t hash);
 
 OPA_INTERNAL
-int opa_value_type(opa_value *node)
+int __attribute__ ((noinline)) opa_value_type(opa_value *node) // <-- remove attribute and the tests PASS
+// int opa_value_type(opa_value *node)
 {
 	return node->type;
 }
@@ -687,7 +688,7 @@ void opa_value_free(opa_value *node)
 OPA_INTERNAL
 opa_value *opa_value_merge(opa_value *a, opa_value *b)
 {
-    if (a == NULL)
+    if ((a == NULL) && (opa_value_type(b) == OPA_OBJECT))
     {
         return b;
     }

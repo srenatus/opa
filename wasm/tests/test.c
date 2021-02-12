@@ -1154,6 +1154,8 @@ void test_opa_value_merge_scalars(void)
 WASM_EXPORT(test_opa_value_merge_first_operand_null)
 void test_opa_value_merge_first_operand_null(void)
 {
+    // These tests FAIL, and that's expected given the code change of this commit.
+    // When removing the `noinline` attribute, they PASS.
     test_str_eq("second operand string returns string", "\"foo\"", opa_json_dump(opa_value_merge(NULL, opa_string_terminated("foo"))));
     test_str_eq("second operand object returns object", "{}", opa_json_dump(opa_value_merge(NULL, opa_object())));
     test_str_eq("second operand number returns number", "1", opa_json_dump(opa_value_merge(NULL, opa_number_int(1))));
