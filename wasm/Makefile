@@ -13,6 +13,15 @@ WASM_BUILDER_VERSION := 1.3
 WASM_BUILDER_IMAGE := $(DOCKER_WASM_BUILDER_IMAGE):$(WASM_BUILDER_VERSION)
 WASM_OBJ_DIR := _obj
 
+PROXY_WASM_CPP_SDK := third_party/proxy-wasm-cpp-sdk
+PROXY_WASM_DEPS := \
+  $(PROXY_WASM_CPP_SDK)/proxy_wasm_intrinsics.h \
+  $(PROXY_WASM_CPP_SDK)/proxy_wasm_enums.h \
+  $(PROXY_WASM_CPP_SDK)/proxy_wasm_externs.h \
+  $(PROXY_WASM_CPP_SDK)/proxy_wasm_api.h \
+  $(PROXY_WASM_CPP_SDK)/proxy_wasm_intrinsics.cc # ? NO_CONTEXT
+# left off: proxy_wasm_intrinsics.js
+
 CFLAGS += \
 	-MD \
 	-MP \
@@ -36,6 +45,7 @@ CPPFLAGS += \
 	-I /usr/lib/llvm-11/include/c++/v1 \
 	-I /usr/lib/llvm-11/lib/clang/11.0.0/include \
 	-I src/re2 \
+	-I $(PROXY_WASM_CPP_SDK) \
 	-D_LIBCPP_HAS_NO_THREADS
 
 ifeq ($(DEBUG), 1)
@@ -119,7 +129,7 @@ TEST_CPP_OBJS := $(patsubst %.cc, $(WASM_OBJ_DIR)/%.wasm, $(TEST_CPP_SRCS))
 $(OBJS): $(WASM_OBJ_DIR)/src/%.wasm: src/%.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-$(CPP_OBJS): $(WASM_OBJ_DIR)/src/%.wasm: src/%.cc
+$(CPP_OBJS): $(WASM_OBJ_DIR)/src/%.wasm: src/%.cc $(PROXY_WASM_DEPS)
 	$(CXX) $(CPPFLAGS) -c -o $@ $<
 
 $(LIB_OBJS): $(WASM_OBJ_DIR)/src/lib/%.wasm: src/lib/%.c
@@ -148,6 +158,7 @@ $(WASM_OBJ_DIR)/opa.wasm: $(OBJS) $(CPP_OBJS) $(LIB_OBJS) $(LIB_MPDEC_OBJS) $(LI
 			--allow-undefined-file=src/undefined.symbols \
 			--import-memory \
 			--no-entry \
+			--export-all \
 			-o $@ $^
 	@wasm2wat $(WASM_OBJ_DIR)/opa.wasm > $(WASM_OBJ_DIR)/opa.wast
 
@@ -164,3 +175,4 @@ $(WASM_OBJ_DIR)/callgraph.csv: $(WASM_OBJ_DIR)/opa.wasm
 	# because we're not actually optimizing the wasm, but only extract
 	# information.
 	build/gen-wasm-callgraph.sh $< > $@
+	

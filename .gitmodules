@@ -1,0 +1,3 @@
+[submodule "wasm/third_party/proxy-wasm-cpp-sdk"]
+	path = wasm/third_party/proxy-wasm-cpp-sdk
+	url = https://github.com/proxy-wasm/proxy-wasm-cpp-sdk
