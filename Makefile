@@ -8,7 +8,7 @@ CGO_ENABLED ?= 1
 WASM_ENABLED ?= 1
 
 # Force modules on and to use the vendor directory.
-GO := CGO_ENABLED=$(CGO_ENABLED) GO111MODULE=on GOFLAGS=-mod=vendor go
+GO := CC=zcc CXX=zxx CGO_ENABLED=$(CGO_ENABLED) GO111MODULE=on GOFLAGS=-mod=vendor go
 GO_TEST_TIMEOUT := -timeout 30m
 
 GO_TAGS := -tags=
@@ -253,7 +253,7 @@ build-docker: ensure-release-dir
 
 .PHONY: build-linux
 build-linux: ensure-release-dir
-	@$(MAKE) build GOOS=linux CGO_ENABLED=0 WASM_ENABLED=0
+	@$(MAKE) build GOOS=linux
 	mv opa_linux_$(GOARCH) $(RELEASE_DIR)/
 
 .PHONY: build-darwin

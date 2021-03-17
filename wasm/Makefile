@@ -8,20 +8,29 @@ ifeq ($(shell tty > /dev/null && echo 1 || echo 0), 1)
 DOCKER_FLAGS += -it
 endif
 
-DOCKER_WASM_BUILDER_IMAGE ?= openpolicyagent/opa-wasm-builder
-WASM_BUILDER_VERSION := 1.3
+DOCKER_WASM_BUILDER_IMAGE ?= wasmsdk
+WASM_BUILDER_VERSION := v2
 WASM_BUILDER_IMAGE := $(DOCKER_WASM_BUILDER_IMAGE):$(WASM_BUILDER_VERSION)
 WASM_OBJ_DIR := _obj
 
 PROXY_WASM_CPP_SDK := third_party/proxy-wasm-cpp-sdk
+ifdef NO_CONTEXT
+  CPP_CONTEXT_LIB =
+else
+  CPP_CONTEXT_LIB = ${PROXY_WASM_CPP_SDK}/proxy_wasm_intrinsics.cc
+endif
+
 PROXY_WASM_DEPS := \
   $(PROXY_WASM_CPP_SDK)/proxy_wasm_intrinsics.h \
   $(PROXY_WASM_CPP_SDK)/proxy_wasm_enums.h \
   $(PROXY_WASM_CPP_SDK)/proxy_wasm_externs.h \
   $(PROXY_WASM_CPP_SDK)/proxy_wasm_api.h \
-  $(PROXY_WASM_CPP_SDK)/proxy_wasm_intrinsics.cc # ? NO_CONTEXT
-# left off: proxy_wasm_intrinsics.js
+  $(PROXY_WASM_CPP_SDK)/proxy_wasm_intrinsics.js \
+  $(CPP_CONTEXT_LIB)
 
+#	em++ --no-entry -s EXPORTED_FUNCTIONS=['_malloc'] --std=c++17 -O3 -flto -DPROXY_WASM_PROTOBUF_LITE=1 -I${PROXY_WASM_CPP_SDK} -I/usr/local/include --js-library ${PROXY_WASM_CPP_SDK}/proxy_wasm_intrinsics.js $*.cc ${PROXY_WASM_CPP_SDK}/proxy_wasm_intrinsics_lite.pb.cc ${PROXY_WASM_CPP_SDK}/struct_lite.pb.cc ${CPP_CONTEXT_LIB} ${PROXY_WASM_CPP_SDK}/libprotobuf-lite.a -o $*.wasm
+
+CC := emcc
 CFLAGS += \
 	-MD \
 	-MP \
@@ -32,21 +41,40 @@ CFLAGS += \
 	-DCONFIG_32 \
 	-DANSI
 
-CPPFLAGS += \
-	-std=c++17 \
-	-MD \
-	-MP \
-	-nodefaultlibs \
-	--target=wasm32-unknown-unknown-wasm \
-	-fno-exceptions \
-	-fno-rtti \
-	-I src/lib \
+#CPPFLAGS += \
+#	-std=c++17 \
+#	-MD \
+#	-MP \
+#	-nodefaultlibs \
+#	--target=wasm32-unknown-unknown-wasm \
+#	-fno-exceptions \
+#	-fno-rtti \
+#	-D_LIBCPP_HAS_NO_THREADS
+	
+CXX := em++
+CPPFLAGS := \
+	--no-entry \
+	-s EXPORTED_FUNCTIONS=['_malloc'] \
+	--std=c++17 \
+	-O3 \
+	-flto \
+	-DPROXY_WASM_PROTOBUF_LITE=1 \
 	-I src/libc++ \
 	-I /usr/lib/llvm-11/include/c++/v1 \
 	-I /usr/lib/llvm-11/lib/clang/11.0.0/include \
 	-I src/re2 \
+	-I/usr/local/include \
 	-I $(PROXY_WASM_CPP_SDK) \
-	-D_LIBCPP_HAS_NO_THREADS
+	--js-library ${PROXY_WASM_CPP_SDK}/proxy_wasm_intrinsics.js
+
+	#-I src/lib \
+
+# $*.cc
+# ${PROXY_WASM_CPP_SDK}/proxy_wasm_intrinsics_lite.pb.cc
+# ${PROXY_WASM_CPP_SDK}/struct_lite.pb.cc
+# ${CPP_CONTEXT_LIB}
+# ${PROXY_WASM_CPP_SDK}/libprotobuf-lite.a
+# -o $*.wasm
 
 ifeq ($(DEBUG), 1)
 CFLAGS += -O1 -gdwarf -DDEBUG
@@ -57,7 +85,7 @@ CPPFLAGS += -O3
 endif
 
 .PHONY: all
-all: build test
+all: $(WASM_OBJ_DIR)/opa.wasm
 
 .PHONY: clean
 clean:
@@ -65,7 +93,7 @@ clean:
 
 .PHONY: builder
 builder: Dockerfile
-	$(DOCKER) build -t $(WASM_BUILDER_IMAGE) -f Dockerfile .
+	$(DOCKER) build -t $(WASM_BUILDER_IMAGE) -f $(PROXY_WASM_CPP_SDK)/Dockerfile-sdk $(PROXY_WASM_CPP_SDK)
 
 .PHONY: ensure-builder
 ensure-builder:
@@ -77,7 +105,7 @@ push-builder:
 
 .PHONY: build
 build:
-	@$(DOCKER) run $(DOCKER_FLAGS) -v $(CURDIR):/src $(WASM_BUILDER_IMAGE) make $(WASM_OBJ_DIR)/opa.wasm $(WASM_OBJ_DIR)/callgraph.csv
+	@$(DOCKER) run $(DOCKER_FLAGS) -w /src -v $(CURDIR):/src $(WASM_BUILDER_IMAGE) /build_wasm.sh #make $(WASM_OBJ_DIR)/opa.wasm $(WASM_OBJ_DIR)/callgraph.csv
 
 .PHONY: test
 test:
@@ -118,7 +146,7 @@ TEST_CPP_SRCS := $(sort $(wildcard tests/*.cc))
 
 OBJS := $(patsubst %.c, $(WASM_OBJ_DIR)/%.wasm, $(SRCS))
 CPP_OBJS := $(patsubst %.cc, $(WASM_OBJ_DIR)/%.wasm, $(CPP_SRCS))
-LIB_OBJS := $(patsubst %.c, $(WASM_OBJ_DIR)/%.wasm, $(LIB_SRCS))
+LIB_OBJS := #$(patsubst %.c, $(WASM_OBJ_DIR)/%.wasm, $(LIB_SRCS))
 LIB_MPDEC_OBJS := $(patsubst %.c, $(WASM_OBJ_DIR)/%.wasm, $(LIB_MPDEC_SRCS))
 LIB_CPP_OBJS := $(patsubst %.cc, $(WASM_OBJ_DIR)/%.wasm, $(LIB_CPP_SRCS))
 RE2_RE2_OBJS := $(patsubst %.cc, $(WASM_OBJ_DIR)/%.wasm, $(RE2_RE2_SRCS))
@@ -154,21 +182,24 @@ $(TEST_CPP_OBJS): $(WASM_OBJ_DIR)/tests/%.wasm: tests/%.cc
 	$(CXX) $(CPPFLAGS) -I src -c -o $@ $<
 
 $(WASM_OBJ_DIR)/opa.wasm: $(OBJS) $(CPP_OBJS) $(LIB_OBJS) $(LIB_MPDEC_OBJS) $(LIB_CPP_OBJS) $(RE2_RE2_OBJS) $(RE2_UTIL_OBJS)
-	wasm-ld-11 \
-			--allow-undefined-file=src/undefined.symbols \
-			--import-memory \
-			--no-entry \
-			--export-all \
-			-o $@ $^
-	@wasm2wat $(WASM_OBJ_DIR)/opa.wasm > $(WASM_OBJ_DIR)/opa.wast
+	$(CXX) $(CPPFLAGS) -o $@ $^
+
+	#wasm-ld-11 \
+	#		--allow-undefined-file=src/undefined.symbols \
+	#		--import-memory \
+	#		--no-entry \
+	#		--export-all \
+	#		-o $@ $^
+	#@wasm2wat $(WASM_OBJ_DIR)/opa.wasm > $(WASM_OBJ_DIR)/opa.wast
 
 $(WASM_OBJ_DIR)/opa-test.wasm: $(OBJS) $(CPP_OBJS) $(LIB_OBJS) $(LIB_MPDEC_OBJS) $(LIB_CPP_OBJS) $(RE2_RE2_OBJS) $(RE2_UTIL_OBJS) $(TEST_OBJS) $(TEST_CPP_OBJS)
-	@cat src/undefined.symbols tests/undefined.symbols > _obj/undefined.symbols
-	@wasm-ld-11 \
-			--allow-undefined-file=_obj/undefined.symbols \
-			--import-memory \
-			--no-entry \
-			-o $@ $^
+	$(CXX) $(CPPFLAGS) -o $@ $^
+	#@cat src/undefined.symbols tests/undefined.symbols > _obj/undefined.symbols
+	#@wasm-ld-11 \
+	#		--allow-undefined-file=_obj/undefined.symbols \
+	#		--import-memory \
+	#		--no-entry \
+	#		-o $@ $^
 
 $(WASM_OBJ_DIR)/callgraph.csv: $(WASM_OBJ_DIR)/opa.wasm
 	# NOTE: wasm-opt will output "warning: no output file specified",
