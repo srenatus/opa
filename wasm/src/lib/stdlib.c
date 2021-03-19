@@ -7,6 +7,13 @@
 #include "../malloc.h"
 #include "../std.h"
 
+#ifdef OPA_PROXY_WASM
+void opa_abort(const char *msg)
+{
+    while (true) {}
+}
+#endif
+
 void abort(void)
 {
     while (true)

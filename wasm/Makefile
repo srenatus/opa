@@ -21,7 +21,8 @@ CFLAGS += \
 	-I src/lib \
 	-I src/libmpdec \
 	-DCONFIG_32 \
-	-DANSI
+	-DANSI \
+	-DOPA_PROXY_WASM=1
 
 CPPFLAGS += \
 	-std=c++17 \
@@ -36,7 +37,8 @@ CPPFLAGS += \
 	-I /usr/lib/llvm-11/include/c++/v1 \
 	-I /usr/lib/llvm-11/lib/clang/11.0.0/include \
 	-I src/re2 \
-	-D_LIBCPP_HAS_NO_THREADS
+	-D_LIBCPP_HAS_NO_THREADS \
+	-DOPA_PROXY_WASM=1
 
 ifeq ($(DEBUG), 1)
 CFLAGS += -O1 -gdwarf -DDEBUG

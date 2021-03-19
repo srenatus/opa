@@ -1,6 +1,9 @@
+#include "proxy_wasm.h"
 #include "malloc.h"
 #include "std.h"
 #include <stdio.h>
+
+#define LOG(str) proxy_log(LOG_LEVEL_WARN, str, sizeof(str))
 
 WASM_EXPORT(proxy_abi_version_0_2_0)
 void proxy_abi_version_0_2_0(void)
@@ -16,18 +19,26 @@ void *proxy_malloc(size_t len)
 WASM_EXPORT(proxy_on_vm_start)
 bool proxy_on_vm_start(uint32_t id, uint32_t len)
 {
+    LOG("on_vm_start");
     return true;
 }
 
 WASM_EXPORT(proxy_on_configure)
 bool proxy_on_configure(uint32_t id, uint32_t len)
 {
+    LOG("on_configure");
+
+    size_t buffer_size = len;
+    const char* buffer_data = opa_malloc(len*sizeof(buffer_data));
+    uint32_t res = proxy_get_buffer_bytes(BUFFER_PLUGIN_CONFIGURATION, 0, len, buffer_data, &buffer_size);
+    proxy_log(LOG_LEVEL_WARN, buffer_data, buffer_size);
     return true;
 }
 
 WASM_EXPORT(proxy_on_tick)
 void proxy_on_tick(uint32_t id)
 {
+    LOG("on_tick");
 }
 
 WASM_EXPORT(proxy_on_context_create)

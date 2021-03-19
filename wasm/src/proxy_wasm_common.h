@@ -112,7 +112,3 @@ enum class WasmStreamType : int32_t {
 };
 
 #endif
-
-#define WASM_RESULT_OK            0
-#define WASM_RESULT_NOT_FOUND     1
-#define WASM_RESULT_UNIMPLEMENTED 12

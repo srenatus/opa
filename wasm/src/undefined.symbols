@@ -5,3 +5,5 @@ opa_builtin1
 opa_builtin2
 opa_builtin3
 opa_builtin4
+proxy_log
+proxy_get_buffer_bytes
