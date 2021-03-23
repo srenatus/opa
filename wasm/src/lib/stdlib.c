@@ -22,6 +22,9 @@ void abort(void)
     }
 }
 
+#ifdef OPA_PROXY_WASM
+WASM_EXPORT(malloc)
+#endif
 void *malloc(size_t size)
 {
     return opa_malloc(size);
