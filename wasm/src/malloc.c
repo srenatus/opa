@@ -265,6 +265,12 @@ static struct heap_block * __opa_malloc_reuse_varying(struct heap_blocks *blocks
     return NULL;
 }
 
+#ifdef OPA_PROXY_WASM
+WASM_EXPORT(opa_free)
+void opa_free(void *ptr)
+{
+}
+#else
 WASM_EXPORT(opa_free)
 void opa_free(void *ptr)
 {
@@ -330,6 +336,7 @@ void opa_free(void *ptr)
     block->next->prev = block;
     compact_free(blocks);
 }
+#endif
 
 void *opa_realloc(void *ptr, size_t size)
 {

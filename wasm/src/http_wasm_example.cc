@@ -18,6 +18,7 @@
 #include <unordered_map>
 
 #include "proxy_wasm_intrinsics.h"
+#define OPA_INTERNAL __attribute__((used))
 
 class ExampleRootContext : public RootContext {
 public:
@@ -41,9 +42,20 @@ public:
   void onLog() override;
   void onDelete() override;
 };
-static RegisterContextFactory register_ExampleContext(CONTEXT_FACTORY(ExampleContext),
-                                                      ROOT_FACTORY(ExampleRootContext),
-                                                      "my_root_id");
+
+// static RegisterContextFactory register_ExampleContext(CONTEXT_FACTORY(ExampleContext),
+//                                                       ROOT_FACTORY(ExampleRootContext),
+//                                                       "opa_root_id");
+
+// NOTE(sr): we're calling this to ensure that our implementation here is registered
+// with the proxy_wasm_intrinsics.cc globals. The attempt above is suspect.
+// This method is called by the module's Start function (_initialize), which is
+// wired up in the wasm compiler.
+extern "C" OPA_INTERNAL void _register_proxy_wasm(void) {
+  RegisterContextFactory register_ExampleContext(CONTEXT_FACTORY(ExampleContext),
+                                                 ROOT_FACTORY(ExampleRootContext),
+                                                 "opa_root_id");
+}
 
 bool ExampleRootContext::onStart(size_t) {
   LOG_TRACE("onStart");

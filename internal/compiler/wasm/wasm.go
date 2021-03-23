@@ -252,7 +252,9 @@ func New() *Compiler {
 		c.compilePlans,
 
 		// "local" optimizations
-		c.removeUnusedCode,
+		// TODO(sr): we now need some C++ besides re2, so we can't toss
+		// it all out.
+		// c.removeUnusedCode,
 
 		// final emissions
 		c.emitFuncs,
@@ -886,6 +888,7 @@ func (c *Compiler) emitMapping() error {
 	c.appendInstr(instruction.I32Const{Value: dataOffset})
 	c.appendInstr(instruction.I32Const{Value: int32(len(jsonMap))})
 	c.appendInstr(instruction.Call{Index: c.function(opaMappingInit)})
+	c.appendInstr(instruction.Call{Index: c.function("_register_proxy_wasm")})
 	c.emitFunctionDecl(fName, module.FunctionType{}, false)
 	idx := c.function(fName)
 	c.module.Start.FuncIndex = &idx
