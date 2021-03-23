@@ -36,6 +36,13 @@ opa_value *opa_eval_ctx_get_result(opa_eval_ctx_t *ctx)
     return ctx->result;
 }
 
+#ifdef OPA_PROXY_WASM
+void *eval(opa_eval_ctx_t *ctx)
+{
+    return NULL; // replaced by wasm compiler
+}
+#endif
+
 #ifndef OPA_PROXY_WASM
 OPA_INTERNAL
 void __force_import_opa_builtins()

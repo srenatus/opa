@@ -18,7 +18,8 @@
 #include <unordered_map>
 
 #include "proxy_wasm_intrinsics.h"
-#define OPA_INTERNAL __attribute__((used))
+#include "context.h"
+#include "json.h"
 
 class ExampleRootContext : public RootContext {
 public:
@@ -41,6 +42,8 @@ public:
   void onDone() override;
   void onLog() override;
   void onDelete() override;
+
+  opa_eval_ctx_t* eval_ctx_;
 };
 
 // static RegisterContextFactory register_ExampleContext(CONTEXT_FACTORY(ExampleContext),
@@ -70,30 +73,36 @@ bool ExampleRootContext::onConfigure(size_t) {
 
 void ExampleRootContext::onTick() { logTrace("onTick"); }
 
-void ExampleContext::onCreate() { logInfo("onCreate _"); }
+void ExampleContext::onCreate() {
+  logInfo("onCreate _");
+  eval_ctx_ = opa_eval_ctx_new();
+}
 
 FilterHeadersStatus ExampleContext::onRequestHeaders(uint32_t, bool) {
-  logDebug("onRequestHeaders _");
+  logInfo("onRequestHeaders _");
   auto result = getRequestHeaderPairs();
   auto pairs = result->pairs();
   logInfo("headers: _");
+  opa_object_t *hdrs = opa_cast_object(opa_object());
   for (auto &p : pairs) {
     logInfo(std::string(p.first) + std::string(" -> ") + std::string(p.second));
+    opa_object_insert(hdrs,
+      opa_string_terminated(std::string(p.first).c_str()),
+      opa_string_terminated(std::string(p.second).c_str()));
   }
+
+  opa_object_t *input = opa_cast_object(opa_object());
+  opa_object_insert(input, opa_string_terminated("headers"), &hdrs->hdr);
+  opa_eval_ctx_set_input(eval_ctx_, &input->hdr);
+
+  eval(eval_ctx_);
+  opa_value *res = opa_eval_ctx_get_result(eval_ctx_);
+  logInfo(opa_json_dump(res));
   return FilterHeadersStatus::Continue;
 }
 
 FilterHeadersStatus ExampleContext::onResponseHeaders(uint32_t, bool) {
   logDebug("onResponseHeaders _");
-  auto result = getResponseHeaderPairs();
-  auto pairs = result->pairs();
-  logInfo(std::string("headers: _"));
-  for (auto &p : pairs) {
-    logInfo(std::string(p.first) + std::string(" -> ") + std::string(p.second));
-  }
-  addResponseHeader("X-Wasm-custom", "FOO");
-  replaceResponseHeader("content-type", "text/plain; charset=utf-8");
-  removeResponseHeader("content-length");
   return FilterHeadersStatus::Continue;
 }
 
