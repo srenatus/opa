@@ -58,38 +58,38 @@ extern "C" OPA_INTERNAL void _register_proxy_wasm(void) {
 }
 
 bool ExampleRootContext::onStart(size_t) {
-  LOG_TRACE("onStart");
+  logInfo("onStart");
   return true;
 }
 
 bool ExampleRootContext::onConfigure(size_t) {
-  LOG_TRACE("onConfigure");
+  logInfo("onConfigure");
   proxy_set_tick_period_milliseconds(1000); // 1 sec
   return true;
 }
 
-void ExampleRootContext::onTick() { LOG_TRACE("onTick"); }
+void ExampleRootContext::onTick() { logTrace("onTick"); }
 
-void ExampleContext::onCreate() { LOG_WARN("onCreate _"); }
+void ExampleContext::onCreate() { logInfo("onCreate _"); }
 
 FilterHeadersStatus ExampleContext::onRequestHeaders(uint32_t, bool) {
-  LOG_DEBUG("onRequestHeaders _");
+  logDebug("onRequestHeaders _");
   auto result = getRequestHeaderPairs();
   auto pairs = result->pairs();
-  LOG_INFO("headers: _");
+  logInfo("headers: _");
   for (auto &p : pairs) {
-    LOG_INFO(std::string(p.first) + std::string(" -> ") + std::string(p.second));
+    logInfo(std::string(p.first) + std::string(" -> ") + std::string(p.second));
   }
   return FilterHeadersStatus::Continue;
 }
 
 FilterHeadersStatus ExampleContext::onResponseHeaders(uint32_t, bool) {
-  LOG_DEBUG("onResponseHeaders _");
+  logDebug("onResponseHeaders _");
   auto result = getResponseHeaderPairs();
   auto pairs = result->pairs();
-  LOG_INFO(std::string("headers: _"));
+  logInfo(std::string("headers: _"));
   for (auto &p : pairs) {
-    LOG_INFO(std::string(p.first) + std::string(" -> ") + std::string(p.second));
+    logInfo(std::string(p.first) + std::string(" -> ") + std::string(p.second));
   }
   addResponseHeader("X-Wasm-custom", "FOO");
   replaceResponseHeader("content-type", "text/plain; charset=utf-8");
@@ -100,7 +100,7 @@ FilterHeadersStatus ExampleContext::onResponseHeaders(uint32_t, bool) {
 FilterDataStatus ExampleContext::onRequestBody(size_t body_buffer_length,
                                                bool /* end_of_stream */) {
   auto body = getBufferBytes(WasmBufferType::HttpRequestBody, 0, body_buffer_length);
-  LOG_ERROR(std::string("onRequestBody ") + std::string(body->view()));
+  logError(std::string("onRequestBody ") + std::string(body->view()));
   return FilterDataStatus::Continue;
 }
 
@@ -110,8 +110,8 @@ FilterDataStatus ExampleContext::onResponseBody(size_t /* body_buffer_length */,
   return FilterDataStatus::Continue;
 }
 
-void ExampleContext::onDone() { LOG_WARN(std::string("onDone _")); }
+void ExampleContext::onDone() { logWarn(std::string("onDone _")); }
 
-void ExampleContext::onLog() { LOG_WARN(std::string("onLog _")); }
+void ExampleContext::onLog() { logWarn(std::string("onLog _")); }
 
-void ExampleContext::onDelete() { LOG_WARN(std::string("onDelete _")); }
+void ExampleContext::onDelete() { logWarn(std::string("onDelete _")); }
