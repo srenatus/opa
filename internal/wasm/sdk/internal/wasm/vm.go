@@ -71,6 +71,7 @@ func newVM(opts vmOpts) (*VM, error) {
 	v := &VM{}
 	cfg := wasmtime.NewConfig()
 	cfg.SetInterruptable(true)
+	cfg.SetCraneliftOptLevel(wasmtime.OptLevelSpeed)
 	store := wasmtime.NewStore(wasmtime.NewEngineWithConfig(cfg))
 	memorytype := wasmtime.NewMemoryType(wasmtime.Limits{Min: opts.memoryMin, Max: opts.memoryMax})
 	memory := wasmtime.NewMemory(store, memorytype)
