@@ -7,6 +7,7 @@
 extern "C" {
 #endif
 
+void opa_malloc_init(void);
 void *opa_malloc(size_t size);
 void opa_free(void *ptr);
 void *opa_realloc(void *ptr, size_t size);

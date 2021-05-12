@@ -5,7 +5,6 @@
 
 #define ARRAY_SIZE(ARRAY) (sizeof(ARRAY) / sizeof((ARRAY)[0]))
 
-static int initialized;
 static unsigned int heap_ptr;
 static unsigned int heap_top;
 extern unsigned char __heap_base; // set by lld
@@ -104,15 +103,12 @@ static bool compact_free(struct heap_blocks *blocks)
     return old_heap_ptr != heap_ptr;
 }
 
-static void init(void)
+OPA_INTERNAL
+void opa_malloc_init(void)
 {
-    if (!initialized)
-    {
-        heap_ptr = (unsigned int)&__heap_base;
-        heap_top = __builtin_wasm_memory_grow(0, 0) * WASM_PAGE_SIZE;
-        init_free();
-        initialized = 1;
-    }
+    heap_ptr = (unsigned int)&__heap_base;
+    heap_top = __builtin_wasm_memory_grow(0, 0) * WASM_PAGE_SIZE;
+    init_free();
 }
 
 static struct heap_block * __opa_malloc_reuse_fixed(struct heap_blocks *blocks);
@@ -180,8 +176,6 @@ static void *__opa_malloc_new_allocation(size_t size)
 WASM_EXPORT(opa_malloc)
 void *opa_malloc(size_t size)
 {
-    init();
-
     // Look for the first free block that is large enough. Split the found block if necessary.
 
     struct heap_blocks *blocks = __opa_blocks(size);
@@ -376,8 +370,6 @@ void opa_heap_compact(void)
 // Count the number of free blocks. This is for testing only.
 size_t opa_heap_free_blocks(void)
 {
-    init();
-
     size_t blocks1 = 0, blocks2 = 0;
 
     for (int i = 0; i < ARRAY_SIZE(heap_free); i++)
