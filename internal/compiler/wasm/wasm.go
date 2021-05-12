@@ -362,13 +362,18 @@ func (c *Compiler) initModule() error {
 		Results: []types.ValueType{types.I32},
 	}, true)
 
-	c.module.Export.Exports = append(c.module.Export.Exports, module.Export{
-		Name: "memory",
-		Descriptor: module.ExportDescriptor{
-			Type:  module.MemoryExportType,
-			Index: 0,
-		},
-	})
+	// If we're importing memory, the export needs to be explicitly added
+	for _, imp := range c.module.Import.Imports {
+		if imp.Descriptor.Kind() == module.MemoryImportType {
+			c.module.Export.Exports = append(c.module.Export.Exports, module.Export{
+				Name: "memory",
+				Descriptor: module.ExportDescriptor{
+					Type:  module.MemoryExportType,
+					Index: 0,
+				},
+			})
+		}
+	}
 
 	return nil
 }
