@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -26,8 +27,13 @@ void opa_println(const char *msg);
 #define TRACE(...)
 #endif
 
+#ifdef WAPC
+#define WASM_EXPORT(...)
+#else
 // Functions to be exported from the WASM module
 #define WASM_EXPORT(NAME) __attribute__((export_name(#NAME)))
+#endif
+
 // functions that implement builtins
 #define OPA_BUILTIN __attribute__((used))
 // functions that may be called from the generated WASM code

@@ -21,7 +21,8 @@ CFLAGS += \
 	-I src/lib \
 	-I src/libmpdec \
 	-DCONFIG_32 \
-	-DANSI
+	-DANSI \
+	-DWAPC
 
 CPPFLAGS += \
 	-std=c++17 \
@@ -37,7 +38,8 @@ CPPFLAGS += \
 	-I /usr/lib/llvm-12/lib/clang/12.0.0/include \
 	-I src/re2 \
 	-D_LIBCPP_HAS_NO_THREADS \
-	-D_LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION
+	-D_LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION \
+	-DWAPC
 
 ifeq ($(DEBUG), 1)
 CFLAGS += -O1 -gdwarf -DDEBUG

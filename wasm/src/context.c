@@ -36,6 +36,7 @@ opa_value *opa_eval_ctx_get_result(opa_eval_ctx_t *ctx)
     return ctx->result;
 }
 
+#ifndef WAPC
 OPA_INTERNAL
 void __force_import_opa_builtins()
 {
@@ -45,3 +46,4 @@ void __force_import_opa_builtins()
     opa_builtin3(-1, NULL, NULL, NULL, NULL);
     opa_builtin4(-1, NULL, NULL, NULL, NULL, NULL);
 }
+#endif

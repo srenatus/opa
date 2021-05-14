@@ -1498,11 +1498,17 @@ func (c *Compiler) compileExternalCall(stmt *ir.CallStmt, id int32, result *[]in
 
 func (c *Compiler) emitFunctionDecl(name string, tpe module.FunctionType, export bool) {
 
-	typeIndex := c.emitFunctionType(tpe)
-	c.module.Function.TypeIndices = append(c.module.Function.TypeIndices, typeIndex)
-	c.module.Code.Segments = append(c.module.Code.Segments, module.RawCodeSegment{})
-	idx := uint32((len(c.module.Function.TypeIndices) - 1) + c.functionImportCount())
-	c.funcs[name] = idx
+	var idx uint32
+	if old, ok := c.funcs[name]; ok {
+		c.debug.Printf("function %s: over-writing old index %d", name, old)
+		idx = old
+	} else {
+		typeIndex := c.emitFunctionType(tpe)
+		c.module.Function.TypeIndices = append(c.module.Function.TypeIndices, typeIndex)
+		c.module.Code.Segments = append(c.module.Code.Segments, module.RawCodeSegment{})
+		idx = uint32((len(c.module.Function.TypeIndices) - 1) + c.functionImportCount())
+		c.funcs[name] = idx
+	}
 
 	if export {
 		c.module.Export.Exports = append(c.module.Export.Exports, module.Export{
