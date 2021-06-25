@@ -270,7 +270,7 @@ ci-build-linux-static: ensure-release-dir
 
 .PHONY: ci-build-darwin
 ci-build-darwin: ensure-release-dir
-	@$(MAKE) build GOOS=darwin
+	$(MAKE) build GOOS=darwin CC=zcc-darwin CXX=zxx-darwin
 	chmod +x opa_darwin_$(GOARCH)
 	mv opa_darwin_$(GOARCH) $(RELEASE_DIR)/
 
