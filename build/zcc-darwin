@@ -1,2 +1,3 @@
 #!/bin/sh
-ZIG_LOCAL_CACHE_DIR="$HOME/tmp" zig cc -target x86_64-macos-gnu -F /System/Library/Frameworks $@
+#ZIG_LOCAL_CACHE_DIR="$HOME/tmp" zig cc -target x86_64-macos-gnu -F $(xcrun --show-sdk-path)/System/Library/Frameworks -L$(xcrun --show-sdk-path)/usr/lib $@
+ZIG_LOCAL_CACHE_DIR="$HOME/tmp" zig cc $@

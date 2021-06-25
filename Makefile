@@ -61,7 +61,7 @@ ifneq (,$(TELEMETRY_URL))
 TELEMETRY_FLAG := -X github.com/open-policy-agent/opa/internal/report.ExternalServiceURL=$(TELEMETRY_URL)
 endif
 
-LDFLAGS := "$(TELEMETRY_FLAG) \
+LDFLAGS := "-w $(TELEMETRY_FLAG) \
 	-X github.com/open-policy-agent/opa/version.Version=$(VERSION) \
 	-X github.com/open-policy-agent/opa/version.Vcs=$(BUILD_COMMIT) \
 	-X github.com/open-policy-agent/opa/version.Timestamp=$(BUILD_TIMESTAMP) \
