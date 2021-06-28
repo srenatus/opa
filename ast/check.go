@@ -374,7 +374,11 @@ func unify2(env *TypeEnv, a *Term, typeA types.Type, b *Term, typeB types.Type) 
 	} else if nilB && !nilA {
 		return unify1(env, b, typeA, false)
 	} else if !nilA && !nilB {
-		return unifies(typeA, typeB)
+		if tpe, ok := unifies(typeA, typeB); ok {
+			env.tree.PutOne(a.Value, tpe)
+			return true
+		}
+		return false
 	}
 
 	switch a.Value.(type) {
@@ -491,11 +495,13 @@ func unify1(env *TypeEnv, term *Term, tpe types.Type, union bool) bool {
 		}
 		return false
 	case Ref, *ArrayComprehension, *ObjectComprehension, *SetComprehension:
-		return unifies(env.Get(v), tpe)
+		_, ok := unifies(env.Get(v), tpe) // TODO: do sth?
+		return ok
 	case Var:
 		if !union {
 			if exist := env.Get(v); exist != nil {
-				return unifies(exist, tpe)
+				_, ok := unifies(exist, tpe) // TODO
+				return ok
 			}
 			env.tree.PutOne(term.Value, tpe)
 		} else {
@@ -506,7 +512,8 @@ func unify1(env *TypeEnv, term *Term, tpe types.Type, union bool) bool {
 		if !IsConstant(v) {
 			panic("unreachable")
 		}
-		return unifies(env.Get(term), tpe)
+		_, ok := unifies(env.Get(term), tpe)
+		return ok
 	}
 }
 
@@ -652,7 +659,9 @@ func (rc *refChecker) checkRef(curr *TypeEnv, node *typeTreeNode, ref Ref, idx i
 	case Var:
 
 		if exist := rc.env.Get(value); exist != nil {
-			if !unifies(types.S, exist) {
+			if tpe, ok := unifies(types.S, exist); ok { // TODO test
+				rc.env.tree.PutOne(value, tpe)
+			} else { // !ok
 				return newRefErrInvalid(ref[0].Location, rc.varRewriter(ref), idx, exist, types.S, getOneOfForNode(node))
 			}
 		} else {
@@ -668,7 +677,9 @@ func (rc *refChecker) checkRef(curr *TypeEnv, node *typeTreeNode, ref Ref, idx i
 			return nil
 		}
 
-		if !unifies(types.S, exist) {
+		if tpe, ok := unifies(types.S, exist); ok { // TODO test
+			rc.env.tree.PutOne(value, tpe)
+		} else { // !ok
 			return newRefErrInvalid(ref[0].Location, rc.varRewriter(ref), idx, exist, types.S, getOneOfForNode(node))
 		}
 
@@ -706,7 +717,9 @@ func (rc *refChecker) checkRefLeaf(tpe types.Type, ref Ref, idx int) *Error {
 
 	case Var:
 		if exist := rc.env.Get(value); exist != nil {
-			if !unifies(exist, keys) {
+			if tpe, ok := unifies(exist, keys); ok {
+				rc.env.tree.PutOne(value, tpe)
+			} else { // !ok
 				return newRefErrInvalid(ref[0].Location, rc.varRewriter(ref), idx, exist, keys, getOneOfForType(tpe))
 			}
 		} else {
@@ -715,7 +728,9 @@ func (rc *refChecker) checkRefLeaf(tpe types.Type, ref Ref, idx int) *Error {
 
 	case Ref:
 		if exist := rc.env.Get(value); exist != nil {
-			if !unifies(exist, keys) {
+			if tpe, ok := unifies(exist, keys); ok {
+				rc.env.tree.PutOne(value, tpe)
+			} else { // !ok
 				return newRefErrInvalid(ref[0].Location, rc.varRewriter(ref), idx, exist, keys, getOneOfForType(tpe))
 			}
 		}
@@ -736,79 +751,100 @@ func (rc *refChecker) checkRefLeaf(tpe types.Type, ref Ref, idx int) *Error {
 	return rc.checkRefLeaf(types.Values(tpe), ref, idx+1)
 }
 
-func unifies(a, b types.Type) bool {
+// unifies attempts to unify two types, while potentially refining the result (TODO: reword)
+func unifies(a, b types.Type) (types.Type, bool) {
 
 	if a == nil || b == nil {
-		return false
+		return nil, false
 	}
 
 	anyA, ok1 := a.(types.Any)
 	if ok1 {
-		if unifiesAny(anyA, b) {
-			return true
+		if tpe, ok := unifiesAny(anyA, b); ok {
+			return tpe, true
 		}
 	}
 
 	anyB, ok2 := b.(types.Any)
 	if ok2 {
-		if unifiesAny(anyB, a) {
-			return true
+		if tpe, ok := unifiesAny(anyB, a); ok {
+			return tpe, true
 		}
 	}
 
 	if ok1 || ok2 {
-		return false
+		return nil, false
 	}
 
 	switch a := a.(type) {
 	case types.Null:
 		_, ok := b.(types.Null)
-		return ok
+		return a, ok
 	case types.Boolean:
 		_, ok := b.(types.Boolean)
-		return ok
+		return a, ok
 	case types.Number:
 		_, ok := b.(types.Number)
-		return ok
+		return a, ok
 	case types.String:
-		_, ok := b.(types.String)
-		return ok
+		b, ok := b.(types.String)
+		if ok {
+			aLit, aok := a.Literal()
+			bLit, bok := b.Literal()
+			if aok && !bok {
+				return a, true
+			}
+			if !aok && bok {
+				return b, true
+			}
+			if aok && bok {
+				return a, aLit == bLit
+			}
+		}
+		return a, ok
 	case *types.Array:
 		b, ok := b.(*types.Array)
 		if !ok {
-			return false
+			return nil, false
 		}
-		return unifiesArrays(a, b)
+		return a, unifiesArrays(a, b) // a?
 	case *types.Object:
 		b, ok := b.(*types.Object)
 		if !ok {
-			return false
+			return nil, false
 		}
-		return unifiesObjects(a, b)
+		return a, unifiesObjects(a, b) // a?
 	case *types.Set:
 		b, ok := b.(*types.Set)
 		if !ok {
-			return false
+			return nil, false
 		}
-		return unifies(types.Values(a), types.Values(b))
+		elemType, ok := unifies(types.Values(a), types.Values(b))
+		if ok {
+			return types.NewSet(elemType), true
+		}
+		return nil, false
 	case *types.Function:
 		// TODO(tsandall): revisit once functions become first-class values.
-		return false
+		return nil, false
 	default:
 		panic("unreachable")
 	}
 }
 
-func unifiesAny(a types.Any, b types.Type) bool {
+func unifiesAny(a types.Any, b types.Type) (types.Type, bool) {
 	if _, ok := b.(*types.Function); ok {
-		return false
+		return nil, false
+	}
+	if len(a) == 0 {
+		return types.NewAny(b), true
 	}
 	for i := range a {
-		if unifies(a[i], b) {
-			return true
+		if tpe, ok := unifies(a[i], b); ok {
+			return a.Merge(tpe), true
 		}
 	}
-	return len(a) == 0
+	return nil, false
 }
 
 func unifiesArrays(a, b *types.Array) bool {
@@ -821,13 +857,17 @@ func unifiesArrays(a, b *types.Array) bool {
 		return false
 	}
 
-	return a.Dynamic() == nil || b.Dynamic() == nil || unifies(a.Dynamic(), b.Dynamic())
+	if a.Dynamic() == nil || b.Dynamic() == nil {
+		return true
+	}
+	_, ok := unifies(a.Dynamic(), b.Dynamic())
+	return ok
 }
 
 func unifiesArraysStatic(a, b *types.Array) bool {
 	if a.Len() != 0 {
 		for i := 0; i < a.Len(); i++ {
-			if !unifies(a.Select(i), b.Select(i)) {
+			if _, ok := unifies(a.Select(i), b.Select(i)); !ok {
 				return false
 			}
 		}
@@ -844,12 +884,16 @@ func unifiesObjects(a, b *types.Object) bool {
 		return false
 	}
 
-	return a.DynamicValue() == nil || b.DynamicValue() == nil || unifies(a.DynamicValue(), b.DynamicValue())
+	if a.DynamicValue() == nil || b.DynamicValue() == nil {
+		return true
+	}
+	_, ok := unifies(a.DynamicValue(), b.DynamicValue())
+	return ok
 }
 
 func unifiesObjectsStatic(a, b *types.Object) bool {
 	for _, k := range a.Keys() {
-		if !unifies(a.Select(k), b.Select(k)) {
+		if _, ok := unifies(a.Select(k), b.Select(k)); !ok {
 			return false
 		}
 	}

@@ -155,7 +155,7 @@ func TestCheckInference(t *testing.T) {
 			Var("arr"): types.NewArray(nil, types.A),
 			Var("j"):   types.N,
 			Var("v2"):  types.A,
-			Var("set"): types.NewSet(types.A),
+			Var("set"): types.NewSet(types.NewAny(types.N)),
 			Var("v3"):  types.A,
 		}},
 		{"empty-composite-property", `
@@ -278,6 +278,29 @@ func TestCheckInference(t *testing.T) {
 				Var("y"): types.NewAny(
 					types.N, types.S,
 				),
+			},
+		},
+		{
+			note:  "string literals: simple",
+			query: `x = "foo"`,
+			expected: map[Var]types.Type{
+				Var("x"): types.NewString("foo"),
+			},
+		},
+		{
+			note:  "string literals: from composite",
+			query: `x = [1, "foo", "baz"]; x[_] = y`,
+			expected: map[Var]types.Type{
+				Var("y"): types.NewAny(
+					types.N, types.NewString("foo"), types.NewString("baz"),
+				),
+			},
+		},
+		{
+			note:  "string literals: with any",
+			query: `x = input; x = "foo"`,
+			expected: map[Var]types.Type{
+				Var("x"): types.NewAny(types.NewString("foo")),
 			},
 		},
 	}
@@ -586,6 +609,7 @@ func TestCheckMatchErrors(t *testing.T) {
 		{"boolean", "true = null"},
 		{"number", "1 = null"},
 		{"string", `"hello" = null`},
+		{"string-literal-mismatch", `"hello" = "world"`},
 		{"array", "[1,2,3] = null"},
 		{"array-nested", `[1,2,3] = [1,2,"3"]`},
 		{"array-nested-2", `[1,2] = [1,2,3]`},

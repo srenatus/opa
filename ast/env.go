@@ -42,7 +42,7 @@ func (env *TypeEnv) Get(x interface{}) types.Type {
 	case Number:
 		return types.NewNumber()
 	case String:
-		return types.NewString()
+		return types.NewString(string(x))
 
 	// Composites.
 	case *Array:

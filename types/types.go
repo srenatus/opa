@@ -83,13 +83,18 @@ func (t Boolean) String() string {
 }
 
 // String represents the string type.
-type String struct{}
+type String struct {
+	literal *string
+}
 
 // S represents an instance of the string type.
 var S = NewString()
 
 // NewString returns a new String type.
-func NewString() String {
+func NewString(s ...string) String {
+	if len(s) == 1 {
+		return String{literal: &s[0]}
+	}
 	return String{}
 }
 
@@ -100,7 +105,17 @@ func (t String) MarshalJSON() ([]byte, error) {
 	})
 }
 
+func (t String) Literal() (string, bool) {
+	if t.literal != nil {
+		return *t.literal, true
+	}
+	return "", false
+}
+
 func (t String) String() string {
+	if t.literal != nil {
+		return fmt.Sprintf("%s<%q>", typeString, *t.literal)
+	}
 	return typeString
 }
 
@@ -423,7 +438,7 @@ func (t Any) Union(other Any) Any {
 		return other
 	}
 	cpy := make(Any, len(t))
-	for i := range cpy {
+	for i := range cpy { // TODO copy()
 		cpy[i] = t[i]
 	}
 	for i := range other {
@@ -553,8 +568,17 @@ func Compare(a, b Type) int {
 	} else if x < y {
 		return -1
 	}
-	switch a.(type) {
-	case nil, Null, Boolean, Number, String:
+	switch a.(type) { // a, b have same type
+	case nil, Null, Boolean, Number:
+		return 0
+	case String: // check literals
+		aS, bS := a.(String), b.(String)
+		if aS.literal != nil {
+			if bS.literal != nil {
+				return strings.Compare(*aS.literal, *bS.literal)
+			}
+			// TODO return what?
+		}
 		return 0
 	case *Array:
 		arrA := a.(*Array)
