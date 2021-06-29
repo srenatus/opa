@@ -2,6 +2,9 @@
 # Use of this source code is governed by an Apache2
 # license that can be found in the LICENSE file.
 
+SHELL := /bin/bash
+PATH := $(shell pwd)/build:$(PATH)
+
 VERSION := $(shell ./build/get-build-version.sh)
 
 CGO_ENABLED ?= 1
