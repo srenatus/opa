@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/gobwas/glob/util/runes"
+
 	"github.com/open-policy-agent/opa/ast"
 	"github.com/open-policy-agent/opa/topdown/builtins"
 )
@@ -88,17 +90,6 @@ func builtinConcat(a, b ast.Value) (ast.Value, error) {
 }
 
 func builtinIndexOf(a, b ast.Value) (ast.Value, error) {
-	runesEqual := func(a, b []rune) bool {
-		if len(a) != len(b) {
-			return false
-		}
-		for i, v := range a {
-			if v != b[i] {
-				return false
-			}
-		}
-		return true
-	}
 
 	base, err := builtins.StringOperand(a, 1)
 	if err != nil {
@@ -113,21 +104,7 @@ func builtinIndexOf(a, b ast.Value) (ast.Value, error) {
 		return nil, fmt.Errorf("empty search character")
 	}
 
-	baseRunes := []rune(string(base))
-	searchRunes := []rune(string(search))
-	searchLen := len(searchRunes)
-
-	for i, r := range baseRunes {
-		if r == searchRunes[0] {
-			if len(baseRunes) >= i+searchLen {
-				if runesEqual(baseRunes[i:i+searchLen], searchRunes) {
-					return ast.IntNumberTerm(i).Value, nil
-				}
-			}
-		}
-	}
-
-	return ast.IntNumberTerm(-1).Value, nil
+	return ast.IntNumberTerm(runes.Index([]rune(base), []rune(search))).Value, nil
 }
 
 func builtinSubstring(a, b, c ast.Value) (ast.Value, error) {
@@ -177,7 +154,7 @@ func builtinContains(a, b ast.Value) (ast.Value, error) {
 		return nil, err
 	}
 
-	return ast.Boolean(strings.Contains(string(s), string(substr))), nil
+	return ast.Boolean(runes.Contains([]rune(s), []rune(substr))), nil
 }
 
 func builtinStartsWith(a, b ast.Value) (ast.Value, error) {
@@ -191,7 +168,7 @@ func builtinStartsWith(a, b ast.Value) (ast.Value, error) {
 		return nil, err
 	}
 
-	return ast.Boolean(strings.HasPrefix(string(s), string(prefix))), nil
+	return ast.Boolean(runes.HasPrefix([]rune(s), []rune(prefix))), nil
 }
 
 func builtinEndsWith(a, b ast.Value) (ast.Value, error) {
@@ -205,7 +182,7 @@ func builtinEndsWith(a, b ast.Value) (ast.Value, error) {
 		return nil, err
 	}
 
-	return ast.Boolean(strings.HasSuffix(string(s), string(suffix))), nil
+	return ast.Boolean(runes.HasSuffix([]rune(s), []rune(suffix))), nil
 }
 
 func builtinLower(a ast.Value) (ast.Value, error) {
