@@ -330,9 +330,11 @@ func (pq preparedQuery) newEvalContext(ctx context.Context, options []EvalOption
 			// Note that it could still be nil
 			ectx.rawInput = pq.r.rawInput
 		}
-		ectx.parsedInput, err = pq.r.parseRawInput(ectx.rawInput, ectx.metrics)
-		if err != nil {
-			return nil, finishFunc, err
+		if pq.r.target != targetWasm {
+			ectx.parsedInput, err = pq.r.parseRawInput(ectx.rawInput, ectx.metrics)
+			if err != nil {
+				return nil, finishFunc, err
+			}
 		}
 	}
 
@@ -1926,16 +1928,7 @@ func (r *Rego) eval(ctx context.Context, ectx *EvalContext) (ResultSet, error) {
 
 func (r *Rego) evalWasm(ctx context.Context, ectx *EvalContext) (ResultSet, error) {
 
-	var input *interface{}
-	if ectx.parsedInput != nil {
-		i, err := ast.JSON(ectx.parsedInput)
-		if err != nil {
-			return nil, err
-		}
-		input = &i
-	}
-
-	result, err := r.opa.Eval(ctx, opa.EvalOpts{Metrics: r.metrics, Input: input, Time: ectx.time})
+	result, err := r.opa.Eval(ctx, opa.EvalOpts{Metrics: r.metrics, Input: ectx.rawInput, Time: ectx.time})
 	if err != nil {
 		return nil, err
 	}
