@@ -22,21 +22,30 @@ import (
 	"github.com/open-policy-agent/opa/topdown/builtins"
 )
 
-func opaFunctions(dispatcher *builtinDispatcher, store *wasmtime.Store) map[string]wasmtime.AsExtern {
+func opaFunctions(dispatcher *builtinDispatcher, store *wasmtime.Store, input *bytes.Buffer) map[string]wasmtime.AsExtern {
 
 	i32 := wasmtime.NewValType(wasmtime.KindI32)
 
 	externs := map[string]wasmtime.AsExtern{
-		"opa_abort":    wasmtime.NewFunc(store, wasmtime.NewFuncType([]*wasmtime.ValType{i32}, nil), opaAbort),
-		"opa_builtin0": wasmtime.NewFunc(store, wasmtime.NewFuncType([]*wasmtime.ValType{i32, i32}, []*wasmtime.ValType{i32}), dispatcher.Call),
-		"opa_builtin1": wasmtime.NewFunc(store, wasmtime.NewFuncType([]*wasmtime.ValType{i32, i32, i32}, []*wasmtime.ValType{i32}), dispatcher.Call),
-		"opa_builtin2": wasmtime.NewFunc(store, wasmtime.NewFuncType([]*wasmtime.ValType{i32, i32, i32, i32}, []*wasmtime.ValType{i32}), dispatcher.Call),
-		"opa_builtin3": wasmtime.NewFunc(store, wasmtime.NewFuncType([]*wasmtime.ValType{i32, i32, i32, i32, i32}, []*wasmtime.ValType{i32}), dispatcher.Call),
-		"opa_builtin4": wasmtime.NewFunc(store, wasmtime.NewFuncType([]*wasmtime.ValType{i32, i32, i32, i32, i32, i32}, []*wasmtime.ValType{i32}), dispatcher.Call),
-		"opa_println":  wasmtime.NewFunc(store, wasmtime.NewFuncType([]*wasmtime.ValType{i32}, nil), opaPrintln),
+		"opa_abort":      wasmtime.NewFunc(store, wasmtime.NewFuncType([]*wasmtime.ValType{i32}, nil), opaAbort),
+		"opa_builtin0":   wasmtime.NewFunc(store, wasmtime.NewFuncType([]*wasmtime.ValType{i32, i32}, []*wasmtime.ValType{i32}), dispatcher.Call),
+		"opa_builtin1":   wasmtime.NewFunc(store, wasmtime.NewFuncType([]*wasmtime.ValType{i32, i32, i32}, []*wasmtime.ValType{i32}), dispatcher.Call),
+		"opa_builtin2":   wasmtime.NewFunc(store, wasmtime.NewFuncType([]*wasmtime.ValType{i32, i32, i32, i32}, []*wasmtime.ValType{i32}), dispatcher.Call),
+		"opa_builtin3":   wasmtime.NewFunc(store, wasmtime.NewFuncType([]*wasmtime.ValType{i32, i32, i32, i32, i32}, []*wasmtime.ValType{i32}), dispatcher.Call),
+		"opa_builtin4":   wasmtime.NewFunc(store, wasmtime.NewFuncType([]*wasmtime.ValType{i32, i32, i32, i32, i32, i32}, []*wasmtime.ValType{i32}), dispatcher.Call),
+		"opa_println":    wasmtime.NewFunc(store, wasmtime.NewFuncType([]*wasmtime.ValType{i32}, nil), opaPrintln),
+		"opa_host_input": wasmtime.NewFunc(store, wasmtime.NewFuncType([]*wasmtime.ValType{i32}, []*wasmtime.ValType{i32}), provideInput(input)),
 	}
 
 	return externs
+}
+func provideInput(inp *bytes.Buffer) func(*wasmtime.Caller, []wasmtime.Val) ([]wasmtime.Val, *wasmtime.Trap) {
+	return func(caller *wasmtime.Caller, args []wasmtime.Val) ([]wasmtime.Val, *wasmtime.Trap) {
+		mem := caller.GetExport("memory").Memory()
+		ptr := args[0].I32()
+		copy(mem.UnsafeData(caller)[ptr:ptr+int32(inp.Len())], inp.Bytes())
+		return []wasmtime.Val{wasmtime.ValI32(0)}, nil
+	}
 }
 
 func opaAbort(caller *wasmtime.Caller, args []wasmtime.Val) ([]wasmtime.Val, *wasmtime.Trap) {

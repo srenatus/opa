@@ -23,4 +23,7 @@ opa_value *opa_builtin2(int, void *, opa_value *, opa_value *);
 opa_value *opa_builtin3(int, void *, opa_value *, opa_value *, opa_value *);
 opa_value *opa_builtin4(int, void *, opa_value *, opa_value *, opa_value *, opa_value *);
 
+int32_t opa_host_input(void *);
+int32_t eval(opa_eval_ctx_t *ctx);
+
 #endif

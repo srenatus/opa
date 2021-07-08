@@ -200,6 +200,13 @@ opa_cmp_lt,opa_boolean
 opa_cmp_lte,opa_value_compare
 opa_cmp_lte,opa_boolean
 opa_eval_ctx_new,opa_malloc
+opa_eval_ctx_one_off,opa_heap_ptr_set
+opa_eval_ctx_one_off,opa_malloc
+opa_eval_ctx_one_off,opa_host_input
+opa_eval_ctx_one_off,opa_abort
+opa_eval_ctx_one_off,opa_value_parse
+opa_eval_ctx_one_off,eval
+opa_eval_ctx_one_off,opa_value_dump
 __force_import_opa_builtins,opa_builtin0
 __force_import_opa_builtins,opa_builtin1
 __force_import_opa_builtins,opa_builtin2

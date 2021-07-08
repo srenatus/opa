@@ -34,6 +34,8 @@ type VM struct {
 	baseHeapPtr          int32
 	dataAddr             int32
 	evalHeapPtr          int32
+	input                *bytes.Buffer
+	evalCtxOneOff        func(context.Context, int32, int32, int32, int32) (int32, error)
 	eval                 func(context.Context, int32) error
 	evalCtxGetResult     func(context.Context, int32) (int32, error)
 	evalCtxNew           func(context.Context) (int32, error)
@@ -79,7 +81,8 @@ func newVM(opts vmOpts) (*VM, error) {
 	}
 
 	v.dispatcher = newBuiltinDispatcher()
-	externs := opaFunctions(v.dispatcher, store)
+	v.input = bytes.NewBuffer(nil)
+	externs := opaFunctions(v.dispatcher, store, v.input)
 	imports := []wasmtime.AsExtern{}
 	for _, imp := range module.Type().Imports() {
 		if imp.Type().MemoryType() != nil {
@@ -120,6 +123,9 @@ func newVM(opts vmOpts) (*VM, error) {
 	}
 	v.evalCtxSetInput = func(ctx context.Context, a int32, b int32) error {
 		return callVoid(ctx, v, "opa_eval_ctx_set_input", a, b)
+	}
+	v.evalCtxOneOff = func(ctx context.Context, ep, dataAddr, heapAddr, inputLen int32) (int32, error) {
+		return call(ctx, v, "opa_eval_ctx_one_off", ep, dataAddr, heapAddr, inputLen)
 	}
 	v.evalCtxSetEntrypoint = func(ctx context.Context, a int32, b int32) error {
 		return callVoid(ctx, v, "opa_eval_ctx_set_entrypoint", a, b)
@@ -243,7 +249,31 @@ func (i *VM) Eval(ctx context.Context, entrypoint int32, input *interface{}, met
 	metrics.Timer("wasm_vm_eval").Start()
 	defer metrics.Timer("wasm_vm_eval").Stop()
 
-	metrics.Timer("wasm_vm_eval_prepare_input").Start()
+	inputLen := 0
+	if input != nil {
+		metrics.Timer("wasm_vm_eval_prepare_input").Start()
+		var raw []byte
+		switch v := (*input).(type) {
+		case []byte:
+			raw = v
+		case *ast.Term:
+			raw = []byte(v.String())
+		case ast.Value:
+			raw = []byte(v.String())
+		default:
+			var err error
+			raw, err = json.Marshal(v)
+			if err != nil {
+				return nil, err
+			}
+		}
+		inputLen = len(raw)
+		i.input.Reset()
+		if _, err := i.input.Write(raw); err != nil {
+			return nil, err
+		}
+		metrics.Timer("wasm_vm_eval_prepare_input").Stop()
+	}
 
 	// Setting the ctx here ensures that it'll be available to builtins that
 	// make use of it (e.g. `http.send`); and it will spawn a go routine
@@ -251,69 +281,21 @@ func (i *VM) Eval(ctx context.Context, entrypoint int32, input *interface{}, met
 	// cancelled.
 	i.dispatcher.Reset(ctx, ns)
 
-	err := i.setHeapState(ctx, i.evalHeapPtr)
+	metrics.Timer("wasm_vm_eval_one_off").Start()
+	resultAddr, err := i.evalCtxOneOff(ctx, int32(entrypoint), i.dataAddr, i.evalHeapPtr, int32(inputLen))
 	if err != nil {
 		return nil, err
 	}
+	metrics.Timer("wasm_vm_eval_one_off").Stop()
 
-	// Parse the input JSON and activate it with the data.
-	ctxAddr, err := i.evalCtxNew(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	if i.dataAddr != 0 {
-		if err := i.evalCtxSetData(ctx, ctxAddr, i.dataAddr); err != nil {
-			return nil, err
-		}
-	}
-
-	if err := i.evalCtxSetEntrypoint(ctx, ctxAddr, int32(entrypoint)); err != nil {
-		return nil, err
-	}
-
-	if input != nil {
-		inputAddr, err := i.toRegoJSON(ctx, *input, false)
-		if err != nil {
-			return nil, err
-		}
-
-		if err := i.evalCtxSetInput(ctx, ctxAddr, inputAddr); err != nil {
-			return nil, err
-		}
-	}
-	metrics.Timer("wasm_vm_eval_prepare_input").Stop()
-
-	// Evaluate the policy.
-	metrics.Timer("wasm_vm_eval_execute").Start()
-	err = i.eval(ctx, ctxAddr)
-	metrics.Timer("wasm_vm_eval_execute").Stop()
-	if err != nil {
-		return nil, err
-	}
-
-	metrics.Timer("wasm_vm_eval_prepare_result").Start()
-	resultAddr, err := i.evalCtxGetResult(ctx, ctxAddr)
-	if err != nil {
-		return nil, err
-	}
-
-	serialized, err := i.valueDump(ctx, resultAddr)
-	if err != nil {
-		return nil, err
-	}
-
-	data := i.memory.UnsafeData(i.store)[serialized:]
+	data := i.memory.UnsafeData(i.store)[resultAddr:]
 	n := bytes.IndexByte(data, 0)
 	if n < 0 {
 		n = 0
 	}
 
-	metrics.Timer("wasm_vm_eval_prepare_result").Stop()
-
 	// Skip free'ing input and result JSON as the heap will be reset next round anyway.
-
-	return data[0:n], nil
+	return data[:n], nil
 }
 
 // SetPolicyData Will either update the VM's data or, if the policy changed,
