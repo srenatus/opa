@@ -28,6 +28,8 @@ type VM struct {
 	instance             *wasmtime.Instance // Pointer to avoid unintented destruction (triggering finalizers within).
 	intHandle            *wasmtime.InterruptHandle
 	policy               []byte
+	abiMajorVersion      int32
+	abiMinorVersion      int32
 	memory               *wasmtime.Memory
 	memoryMin            uint32
 	memoryMax            uint32
@@ -104,6 +106,14 @@ func newVM(opts vmOpts) (*VM, error) {
 	v.intHandle, err = store.InterruptHandle()
 	if err != nil {
 		return nil, fmt.Errorf("get interrupt handle: %w", err)
+	}
+
+	v.abiMajorVersion, v.abiMinorVersion, err = getABIVersion(i, store)
+	if err != nil {
+		return nil, fmt.Errorf("get abi version: %w", err)
+	}
+	if v.abiMajorVersion != int32(1) || (v.abiMinorVersion != int32(1) && v.abiMinorVersion != int32(2)) {
+		return nil, fmt.Errorf("unsupported ABI version: %d.%d", v.abiMajorVersion, v.abiMinorVersion)
 	}
 
 	v.store = store
@@ -242,9 +252,26 @@ func newVM(opts vmOpts) (*VM, error) {
 	return v, nil
 }
 
+func getABIVersion(i *wasmtime.Instance, store wasmtime.Storelike) (int32, int32, error) {
+	major := i.GetExport(store, "opa_wasm_abi_version").Global()
+	minor := i.GetExport(store, "opa_wasm_abi_minor_version").Global()
+	if major != nil && minor != nil {
+		majorVal := major.Get(store)
+		minorVal := minor.Get(store)
+		if majorVal.Kind() == wasmtime.KindI32 && minorVal.Kind() == wasmtime.KindI32 {
+			return majorVal.I32(), minorVal.I32(), nil
+		}
+	}
+	return 0, 0, fmt.Errorf("couldn't retrieve ABI version")
+}
+
 // Eval performs an evaluation of the specified entrypoint, with any provided
 // input, and returns the resulting value dumped to a string.
 func (i *VM) Eval(ctx context.Context, entrypoint int32, input *interface{}, metrics metrics.Metrics, seed io.Reader, ns time.Time) ([]byte, error) {
+	if i.abiMinorVersion != int32(2) {
+		return i.evalCompat(ctx, entrypoint, input, metrics, seed, ns)
+	}
+
 	metrics.Timer("wasm_vm_eval").Start()
 	defer metrics.Timer("wasm_vm_eval").Stop()
 
@@ -297,6 +324,86 @@ func (i *VM) Eval(ctx context.Context, entrypoint int32, input *interface{}, met
 
 	// Skip free'ing input and result JSON as the heap will be reset next round anyway.
 	return data[:n], nil
+}
+
+// evalCompat evaluates a policy using multiple calls into the VM to set the stage.
+// It's been superceded with ABI version 1.2, but still here for compatibility with
+// Wasm modules lacking the needed export (i.e., ABI 1.1).
+func (i *VM) evalCompat(ctx context.Context, entrypoint int32, input *interface{}, metrics metrics.Metrics, seed io.Reader, ns time.Time) ([]byte, error) {
+	metrics.Timer("wasm_vm_eval").Start()
+	defer metrics.Timer("wasm_vm_eval").Stop()
+
+	metrics.Timer("wasm_vm_eval_prepare_input").Start()
+
+	// Setting the ctx here ensures that it'll be available to builtins that
+	// make use of it (e.g. `http.send`); and it will spawn a go routine
+	// cancelling the builtins that use topdown.Cancel, when the context is
+	// cancelled.
+	i.dispatcher.Reset(ctx, seed, ns)
+
+	err := i.setHeapState(ctx, i.evalHeapPtr)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse the input JSON and activate it with the data.
+	ctxAddr, err := i.evalCtxNew(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if i.dataAddr != 0 {
+		if err := i.evalCtxSetData(ctx, ctxAddr, i.dataAddr); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := i.evalCtxSetEntrypoint(ctx, ctxAddr, int32(entrypoint)); err != nil {
+		return nil, err
+	}
+
+	if input != nil {
+		inputAddr, err := i.toRegoJSON(ctx, *input, false)
+		if err != nil {
+			return nil, err
+		}
+
+		if err := i.evalCtxSetInput(ctx, ctxAddr, inputAddr); err != nil {
+			return nil, err
+		}
+	}
+	metrics.Timer("wasm_vm_eval_prepare_input").Stop()
+
+	// Evaluate the policy.
+	metrics.Timer("wasm_vm_eval_execute").Start()
+	err = i.eval(ctx, ctxAddr)
+	metrics.Timer("wasm_vm_eval_execute").Stop()
+	if err != nil {
+		return nil, err
+	}
+
+	metrics.Timer("wasm_vm_eval_prepare_result").Start()
+	resultAddr, err := i.evalCtxGetResult(ctx, ctxAddr)
+	if err != nil {
+		return nil, err
+	}
+
+	serialized, err := i.valueDump(ctx, resultAddr)
+	if err != nil {
+		return nil, err
+	}
+
+	data := i.memory.UnsafeData(i.store)[serialized:]
+	n := bytes.IndexByte(data, 0)
+	if n < 0 {
+		n = 0
+	}
+
+	metrics.Timer("wasm_vm_eval_prepare_result").Stop()
+
+	// Skip free'ing input and result JSON as the heap will be reset next round anyway.
+
+	return data[0:n], nil
 }
 
 // SetPolicyData Will either update the VM's data or, if the policy changed,

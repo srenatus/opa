@@ -27,7 +27,7 @@ import (
 const (
 	opaWasmABIVersionVal      = 1
 	opaWasmABIVersionVar      = "opa_wasm_abi_version"
-	opaWasmABIMinorVersionVal = 1
+	opaWasmABIMinorVersionVal = 2
 	opaWasmABIMinorVersionVar = "opa_wasm_abi_minor_version"
 )
 
