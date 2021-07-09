@@ -35,7 +35,7 @@ type VM struct {
 	baseHeapPtr          int32
 	dataAddr             int32
 	evalHeapPtr          int32
-	evalCtxOneOff        func(context.Context, int32, int32, int32, int32, int32) (int32, error)
+	evalOneOff           func(context.Context, int32, int32, int32, int32, int32) (int32, error)
 	eval                 func(context.Context, int32) error
 	evalCtxGetResult     func(context.Context, int32) (int32, error)
 	evalCtxNew           func(context.Context) (int32, error)
@@ -123,8 +123,8 @@ func newVM(opts vmOpts) (*VM, error) {
 	v.evalCtxSetInput = func(ctx context.Context, a int32, b int32) error {
 		return callVoid(ctx, v, "opa_eval_ctx_set_input", a, b)
 	}
-	v.evalCtxOneOff = func(ctx context.Context, ep, dataAddr, inputAddr, inputLen, heapAddr int32) (int32, error) {
-		return call(ctx, v, "opa_eval_ctx_one_off", ep, dataAddr, inputAddr, inputLen, heapAddr)
+	v.evalOneOff = func(ctx context.Context, ep, dataAddr, inputAddr, inputLen, heapAddr int32) (int32, error) {
+		return call(ctx, v, "opa_eval", ep, dataAddr, inputAddr, inputLen, heapAddr)
 	}
 	v.evalCtxSetEntrypoint = func(ctx context.Context, a int32, b int32) error {
 		return callVoid(ctx, v, "opa_eval_ctx_set_entrypoint", a, b)
@@ -282,12 +282,12 @@ func (i *VM) Eval(ctx context.Context, entrypoint int32, input *interface{}, met
 	// cancelled.
 	i.dispatcher.Reset(ctx, seed, ns)
 
-	metrics.Timer("wasm_vm_eval_one_off").Start()
-	resultAddr, err := i.evalCtxOneOff(ctx, int32(entrypoint), i.dataAddr, inputAddr, inputLen, i.evalHeapPtr)
+	metrics.Timer("wasm_vm_eval_call").Start()
+	resultAddr, err := i.evalOneOff(ctx, int32(entrypoint), i.dataAddr, inputAddr, inputLen, i.evalHeapPtr)
 	if err != nil {
 		return nil, err
 	}
-	metrics.Timer("wasm_vm_eval_one_off").Stop()
+	metrics.Timer("wasm_vm_eval_call").Stop()
 
 	data := i.memory.UnsafeData(i.store)[resultAddr:]
 	n := bytes.IndexByte(data, 0)

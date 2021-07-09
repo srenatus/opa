@@ -21,8 +21,8 @@ void opa_eval_ctx_set_input(opa_eval_ctx_t *ctx, opa_value *v)
     ctx->input = v;
 }
 
-WASM_EXPORT(opa_eval_ctx_one_off)
-char *opa_eval_ctx_one_off(int entrypoint, opa_value *data, char *input, uint32_t input_len, uint32_t heap)
+WASM_EXPORT(opa_eval)
+char *opa_eval(int entrypoint, opa_value *data, char *input, uint32_t input_len, uint32_t heap)
 {
     opa_heap_ptr_set(heap);
     opa_eval_ctx_t ctx = {
