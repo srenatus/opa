@@ -278,6 +278,10 @@ func (i *VM) Eval(ctx context.Context, entrypoint int32, input *interface{}, met
 	mem := i.memory.UnsafeData(i.store)
 	inputAddr, inputLen := int32(0), int32(0)
 
+	// NOTE: we'll never free the memory used for the input string during
+	// the one evaluation, but we'll overwrite it on the next evaluation.
+	heapPtr := i.evalHeapPtr
+
 	if input != nil {
 		metrics.Timer("wasm_vm_eval_prepare_input").Start()
 		var raw []byte
@@ -297,7 +301,7 @@ func (i *VM) Eval(ctx context.Context, entrypoint int32, input *interface{}, met
 		}
 		inputLen = int32(len(raw))
 		inputAddr = i.evalHeapPtr
-		i.evalHeapPtr = inputAddr + inputLen
+		heapPtr += inputLen
 		copy(mem[inputAddr:inputAddr+inputLen], raw)
 
 		metrics.Timer("wasm_vm_eval_prepare_input").Stop()
@@ -310,7 +314,7 @@ func (i *VM) Eval(ctx context.Context, entrypoint int32, input *interface{}, met
 	i.dispatcher.Reset(ctx, seed, ns)
 
 	metrics.Timer("wasm_vm_eval_call").Start()
-	resultAddr, err := i.evalOneOff(ctx, int32(entrypoint), i.dataAddr, inputAddr, inputLen, i.evalHeapPtr)
+	resultAddr, err := i.evalOneOff(ctx, int32(entrypoint), i.dataAddr, inputAddr, inputLen, heapPtr)
 	if err != nil {
 		return nil, err
 	}
@@ -729,6 +733,12 @@ func callOrCancel(ctx context.Context, vm *VM, name string, args ...int32) (inte
 					}
 				}
 				if msg != "" {
+					// TODO(sr): Out of bounds memory access is a trap, too!
+					// This "interrupted at" is a bit misleading, however, currently
+					// the only way to fix this is by looking at the string
+					// `t.Error()` which also contains a (long, prettily) rendered
+					// backtrace.
+					// See also https://github.com/bytecodealliance/wasmtime-go/issues/63
 					msg = "interrupted at " + msg
 				}
 			}
