@@ -22,8 +22,12 @@ void opa_eval_ctx_set_input(opa_eval_ctx_t *ctx, opa_value *v)
 }
 
 WASM_EXPORT(opa_eval)
-char *opa_eval(void *, int entrypoint, opa_value *data, char *input, uint32_t input_len, uint32_t heap, bool want_value)
+char *opa_eval(void *reserved, int entrypoint, opa_value *data, char *input, uint32_t input_len, uint32_t heap, bool want_value)
 {
+    if (reserved != NULL) {
+        opa_abort("invalid reserved argument");
+    }
+
     opa_heap_ptr_set(heap);
     opa_eval_ctx_t ctx = {
       .entrypoint = entrypoint,

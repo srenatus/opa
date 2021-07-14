@@ -200,6 +200,7 @@ opa_cmp_lt,opa_boolean
 opa_cmp_lte,opa_value_compare
 opa_cmp_lte,opa_boolean
 opa_eval_ctx_new,opa_malloc
+opa_eval,opa_abort
 opa_eval,opa_heap_ptr_set
 opa_eval,opa_value_parse
 opa_eval,eval
