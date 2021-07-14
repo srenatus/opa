@@ -899,20 +899,7 @@ func (c *Compiler) replaceBooleanFunc() error {
 	c.appendInstr(instruction.GetLocal{Index: 0})
 	c.appendInstr(instruction.Select{})
 
-	// replace the code segment
-	var idx uint32
-	for _, fn := range c.module.Names.Functions {
-		if fn.Name == opaBoolean {
-			idx = fn.Index - uint32(c.functionImportCount())
-		}
-	}
-	var buf bytes.Buffer
-	if err := encoding.WriteCodeEntry(&buf, c.code); err != nil {
-		return err
-	}
-
-	c.module.Code.Segments[idx].Code = buf.Bytes()
-	return nil
+	return c.storeFunc(opaBoolean, c.code)
 }
 
 func (c *Compiler) compileBlock(block *ir.Block) ([]instruction.Instruction, error) {
