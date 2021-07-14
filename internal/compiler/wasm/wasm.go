@@ -1489,7 +1489,7 @@ func (c *Compiler) emitFunctionDecl(name string, tpe module.FunctionType, export
 
 	var idx uint32
 	if old, ok := c.funcs[name]; ok {
-		c.debug.Printf("function %s: over-writing old index %d", name, old)
+		c.debug.Printf("function declaration for %v is being emitted multiple times (overwriting old index %d)", name, old)
 		idx = old
 	} else {
 		typeIndex := c.emitFunctionType(tpe)
