@@ -110,10 +110,10 @@ func newVM(opts vmOpts) (*VM, error) {
 
 	v.abiMajorVersion, v.abiMinorVersion, err = getABIVersion(i, store)
 	if err != nil {
-		return nil, fmt.Errorf("get abi version: %w", err)
+		return nil, fmt.Errorf("invalid module: %w", err)
 	}
 	if v.abiMajorVersion != int32(1) || (v.abiMinorVersion != int32(1) && v.abiMinorVersion != int32(2)) {
-		return nil, fmt.Errorf("unsupported ABI version: %d.%d", v.abiMajorVersion, v.abiMinorVersion)
+		return nil, fmt.Errorf("invalid module: unsupported ABI version: %d.%d", v.abiMajorVersion, v.abiMinorVersion)
 	}
 
 	v.store = store
@@ -262,7 +262,7 @@ func getABIVersion(i *wasmtime.Instance, store wasmtime.Storelike) (int32, int32
 			return majorVal.I32(), minorVal.I32(), nil
 		}
 	}
-	return 0, 0, fmt.Errorf("couldn't retrieve ABI version")
+	return 0, 0, fmt.Errorf("failed to read ABI version")
 }
 
 // Eval performs an evaluation of the specified entrypoint, with any provided
