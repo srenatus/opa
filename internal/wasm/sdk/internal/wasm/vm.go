@@ -268,7 +268,7 @@ func getABIVersion(i *wasmtime.Instance, store wasmtime.Storelike) (int32, int32
 // Eval performs an evaluation of the specified entrypoint, with any provided
 // input, and returns the resulting value dumped to a string.
 func (i *VM) Eval(ctx context.Context, entrypoint int32, input *interface{}, metrics metrics.Metrics, seed io.Reader, ns time.Time) ([]byte, error) {
-	if i.abiMinorVersion != int32(2) {
+	if i.abiMinorVersion < int32(2) {
 		return i.evalCompat(ctx, entrypoint, input, metrics, seed, ns)
 	}
 
