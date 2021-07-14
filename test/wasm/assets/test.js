@@ -219,7 +219,7 @@ function evaluate(policy, input) {
         inputAddr,
         inputLen,
         policy.heapPtr,
-        1, // json output
+        0, // json output
         );
 
     return { addr };
