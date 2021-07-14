@@ -8,8 +8,9 @@ package rego
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
-	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -20,6 +21,7 @@ import (
 	"time"
 
 	"github.com/open-policy-agent/opa/ast"
+	"github.com/open-policy-agent/opa/ast/location"
 	"github.com/open-policy-agent/opa/bundle"
 	"github.com/open-policy-agent/opa/internal/storage/mock"
 	"github.com/open-policy-agent/opa/metrics"
@@ -237,8 +239,37 @@ func TestRegoCancellation(t *testing.T) {
 
 	if err == nil {
 		t.Fatalf("Expected cancellation error but got: %v", rs)
-	} else if topdownErr, ok := err.(*topdown.Error); !ok || topdownErr.Code != topdown.CancelErr {
-		t.Fatalf("Got unexpected error: %v", err)
+	}
+	exp := topdown.Error{Code: topdown.CancelErr, Message: "caller cancelled query execution"}
+	if !errors.Is(err, &exp) {
+		t.Errorf("error: expected %v, got: %v", exp, err)
+	}
+}
+
+func TestRegoCustomBuiltinHalt(t *testing.T) {
+
+	funOpt := Function1(
+		&Function{
+			Name: "halt_func",
+			Decl: types.NewFunction(
+				types.Args(types.S),
+				types.NewNull(),
+			),
+		},
+		func(BuiltinContext, *ast.Term) (*ast.Term, error) {
+			return nil, NewHaltError(fmt.Errorf("stop"))
+		},
+	)
+	r := New(Query(`halt_func("")`), funOpt)
+	rs, err := r.Eval(context.Background())
+	if err == nil {
+		t.Fatalf("Expected halt error but got: %v", rs)
+	}
+	// exp is the error topdown returns after unwrapping the Halt
+	exp := topdown.Error{Code: topdown.BuiltinErr, Message: "halt_func: stop",
+		Location: location.NewLocation([]byte(`halt_func("")`), "", 1, 1)}
+	if !errors.Is(err, &exp) {
+		t.Fatalf("error: expected %v, got: %v", exp, err)
 	}
 }
 
@@ -1915,46 +1946,6 @@ func TestTimeSeedingOptions(t *testing.T) {
 		t.Fatal(err)
 	} else if len(rs2) != 1 || !reflect.DeepEqual(rs[0].Bindings["x"], rs3[0].Bindings["x"]) {
 		t.Fatal("expected old wall clock value")
-	}
-
-}
-
-func TestRandSeedingOptions(t *testing.T) {
-
-	ctx := context.Background()
-	seed := rand.New(rand.NewSource(0))
-
-	exp := "0194fdc2-fa2f-4cc0-81d3-ff12045b73c8"
-
-	// Check expected uuid is returned.
-	rs, err := New(Query(`uuid.rfc4122("", x)`), Seed(seed)).Eval(ctx)
-	if err != nil {
-		t.Fatal(err)
-	} else if rs[0].Bindings["x"] != exp {
-		t.Fatalf("expected %q but got %q", exp, rs[0].Bindings["x"])
-	}
-
-	// Check that seed does not propagate to prepared query.
-	eval, err := New(Query(`uuid.rfc4122("", x)`), Seed(seed)).PrepareForEval(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	rs2, err := eval.Eval(ctx)
-	if err != nil {
-		t.Fatal(err)
-	} else if rs2[0].Bindings["x"] == exp {
-		t.Fatal("expected new uuid")
-	}
-
-	exp3 := "6e4ff95f-f662-45ee-a82a-bdf44a2d0b75"
-
-	// Check that prepared query uses explicitly provided seed.
-	rs3, err := eval.Eval(ctx, EvalSeed(seed))
-	if err != nil {
-		t.Fatal(err)
-	} else if rs3[0].Bindings["x"] != exp3 {
-		t.Fatalf("expected %q but got %q", exp, rs3[0].Bindings["x"])
 	}
 
 }

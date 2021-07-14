@@ -202,7 +202,7 @@ opa run --set "decision_logs.plugin=my_plugin" --set "plugins.my_plugin=null"
 
 ###### Keys with Special Characters
 
-If you have a key which contains a special character (`.`, `=`, etc), like `opa.example.com`, and want to use
+If you have a key which contains a special character (`=`, `[`, `,`, `.`), like `opa.example.com`, and want to use
 the `--set` or `--set-file` options you will need to escape the character with a backslash (`\`).
 
 For example a config section like:
@@ -729,5 +729,7 @@ included in the actual bundle gzipped tarball.
 
 The following `discovery` configuration fields are supported but deprecated:
 
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
 | `discovery.prefix` | `string` | No (default: `bundles`) | Deprecated: Use `resource` instead. Path prefix to use to download configuration from remote server. |
 | `discovery.name` | `string` | No | Deprecated: Use `resource` instead. Name of the discovery configuration to download. If `discovery.name` is specified and `discovery.resource` is unset, the `discovery.decision` field will default to the `discovery.name` value. |

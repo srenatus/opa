@@ -2190,7 +2190,7 @@ func TestTopDownPartialEval(t *testing.T) {
 				q = {a | data.base[a]}`,
 			},
 			disableInlining: []string{"data.base.foo.bar"},
-			wantQueries:     []string{`x_ref_01 = {a2 | data.base[a2]; x_term_2_02 = true}; x_ref_01[input.x]`},
+			wantQueries:     []string{`x_ref_01 = {a2 | data.base[a2]}; x_ref_01[input.x]`},
 		},
 		{
 			note:  "shallow inlining: complete rules",
@@ -2246,13 +2246,13 @@ func TestTopDownPartialEval(t *testing.T) {
 				`
 					package partial.test
 
-					p { not data.partial.__not1_1_3__ }
+					p { not data.partial.__not1_1_4__ }
 					p { not data.partial.__not1_1_5__ }
 				`,
 				`
 					package partial
 
-					__not1_1_3__ { input[1] = x_term_3_01; x_term_3_01 }
+					__not1_1_4__ { input[1] = x_term_4_01; x_term_4_01 }
 					__not1_1_5__ { input[2] = x_term_5_01; x_term_5_01 }
 				`,
 			},
@@ -2450,6 +2450,111 @@ func TestTopDownPartialEval(t *testing.T) {
 			wantQueries: []string{`y1 = {true | x1[0]; input.y = 1; x1 = [0]}; input.x = x`},
 		},
 		{
+			note:  "comprehensions: vars in scope, unused in comprehension",
+			query: `data.test.p`,
+			modules: []string{
+				`package test
+
+				p[x] { q[x] }
+				q[x] {
+					y = { 1 | input }
+					x = true
+				}
+			`},
+			wantQueries: []string{`data.partial.test.p`},
+			wantSupport: []string{`package partial.test
+				p[true] { y2 = {1 | input} }
+			`},
+		},
+		{
+			note:  "comprehensions: vars in scope, used in lhs body (set)",
+			query: `data.test.p`,
+			modules: []string{
+				`package test
+
+				p[x] { q[x] }
+				q[x] {
+					{ 1 | input; x } = y
+					x = true
+				}
+			`},
+			wantQueries: []string{`data.partial.test.p`},
+			wantSupport: []string{`package partial.test
+				p[true] { {1 | input; x2; x2 = true} = y2 }
+			`},
+		},
+		{
+			note:  "comprehensions: vars in scope, used in lhs term (set)",
+			query: `data.test.p`,
+			modules: []string{
+				`package test
+
+				p[x] { q[x] }
+				q[x] {
+					{ x | input } = y
+					x = true
+				}
+			`},
+			wantQueries: []string{`data.partial.test.p`},
+			wantSupport: []string{`package partial.test
+				p[true] { {x2 | input; x2 = true} = y2 }
+			`},
+		},
+		{
+			// NOTE(sr): To actually have the vars in the rhs, we'll need to provide two
+			// comprehensions -- otherwise, the arguments would be flipped and we'd have
+			// the vars in lhs again.
+			note:  "comprehensions: vars in scope, used in rhs body (set)",
+			query: `data.test.p`,
+			modules: []string{
+				`package test
+
+				p[x] { q[x] }
+				q[x] {
+					{ false | input }  = { true | input; x }
+					x = true
+				}
+			`},
+			wantQueries: []string{`data.partial.test.p`},
+			wantSupport: []string{`package partial.test
+				p[true] { {false | input} = {true | input; x2; x2 = true} }
+			`},
+		},
+		{
+			note:  "comprehensions: vars in scope, used in rhs term (set)",
+			query: `data.test.p`,
+			modules: []string{
+				`package test
+
+				p[x] { q[x] }
+				q[x] {
+					{ false | input } = { x | input }
+					x = true
+				}
+			`},
+			wantQueries: []string{`data.partial.test.p`},
+			wantSupport: []string{`package partial.test
+				p[true] { {false | input} = {x2 | input; x2 = true} }
+			`},
+		},
+		{
+			note:  "comprehensions: vars in scope, used in rhs value (object)",
+			query: `data.test.p`,
+			modules: []string{
+				`package test
+
+				p[x] { q[x] }
+				q[x] {
+					{ "foo": false | input } = { "foo": x | input }
+					x = true
+				}
+			`},
+			wantQueries: []string{`data.partial.test.p`},
+			wantSupport: []string{`package partial.test
+				p[true] { {"foo": false | input} = {"foo": x2 | input; x2 = true} }
+			`},
+		},
+		{
 			note:        "comprehensions: ref heads (with live vars)",
 			query:       "x = [0]; y = {true | x[0]; input.y = 1}", // include an unknown in the comprehension to force saving
 			wantQueries: []string{`y = {true | x[0]; input.y = 1; x = [0]}; x = [0]`},
@@ -2575,6 +2680,19 @@ func TestTopDownPartialEval(t *testing.T) {
 			},
 			shallow:              true,
 			skipPartialNamespace: true,
+		},
+		{
+			note:  "copypropagation: circular reference (bug 3559)",
+			query: "data.test.p",
+			modules: []string{`package test
+				p {
+					q[_]
+				}
+				q[x] {
+					x = input[x]
+				}`,
+			},
+			wantQueries: []string{`x_term_1_01; x_term_1_01 = input[x_term_1_01]`},
 		},
 	}
 

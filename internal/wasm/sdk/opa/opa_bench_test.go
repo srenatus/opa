@@ -21,7 +21,6 @@ func BenchmarkWasmRego(b *testing.B) {
 	policy := compileRegoToWasm("a = true", "data.p.a = x", false)
 	instance, _ := opa.New().
 		WithPolicyBytes(policy).
-		WithMemoryLimits(131070, 2*131070). // TODO: For some reason unlimited memory slows down the eval_ctx_new().
 		WithPoolSize(1).
 		Init()
 
@@ -53,6 +52,12 @@ a = true`, "data.p.a = x")
 		if _, err := pq.Eval(ctx, rego.EvalInput(input)); err != nil {
 			panic(err)
 		}
+	}
+}
+
+func BenchmarkWasmCompilation(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		_ = compileRegoToWasm("a = true", "data.p.a = x", false)
 	}
 }
 
