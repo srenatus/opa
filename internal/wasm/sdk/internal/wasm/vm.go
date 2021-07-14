@@ -134,7 +134,7 @@ func newVM(opts vmOpts) (*VM, error) {
 		return callVoid(ctx, v, "opa_eval_ctx_set_input", a, b)
 	}
 	v.evalOneOff = func(ctx context.Context, ep, dataAddr, inputAddr, inputLen, heapAddr int32) (int32, error) {
-		return call(ctx, v, "opa_eval", ep, dataAddr, inputAddr, inputLen, heapAddr, 1)
+		return call(ctx, v, "opa_eval", 0 /* reserved */, ep, dataAddr, inputAddr, inputLen, heapAddr, 1 /* value output */)
 	}
 	v.evalCtxSetEntrypoint = func(ctx context.Context, a int32, b int32) error {
 		return callVoid(ctx, v, "opa_eval_ctx_set_entrypoint", a, b)

@@ -214,6 +214,7 @@ function evaluate(policy, input) {
     }
 
     const addr = policy.module.instance.exports.opa_eval(
+        0, // reserved
         0, // entrypoint
         policy.dataAddr,
         inputAddr,
