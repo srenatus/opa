@@ -2012,3 +2012,23 @@ func TestPrepareAndCompileWithSchema(t *testing.T) {
 		t.Errorf("Unexpected error when compiling: %s", err.Error())
 	}
 }
+
+func TestEvalResultReader(t *testing.T) {
+	ctx := context.Background()
+
+	r := New(Query("x = true"))
+	pq, err := r.PrepareForEval(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rs, err := pq.Eval(ctx, EvalResultValue(func(v ast.Var, val ast.Value) {
+		t.Logf("%v -> %v", v, val)
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rs != nil {
+		t.Errorf("expected nil, got %v", rs)
+	}
+}

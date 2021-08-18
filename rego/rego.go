@@ -113,6 +113,7 @@ type EvalContext struct {
 	interQueryBuiltinCache cache.InterQueryCache
 	resolvers              []refResolver
 	sortSets               bool
+	resultReader           func(ast.Var, ast.Value)
 }
 
 // EvalOption defines a function to set an option on an EvalConfig
@@ -250,6 +251,15 @@ func EvalResolver(ref ast.Ref, r resolver.Resolver) EvalOption {
 func EvalSortSets(yes bool) EvalOption {
 	return func(e *EvalContext) {
 		e.sortSets = yes
+	}
+}
+
+// EvalResultValue allows reading eval results directly. If passed, Eval() will
+// always return a `nil` ResultSet, and call the passed function on each variable
+// that was bound instead.
+func EvalResultValue(f func(ast.Var, ast.Value)) EvalOption {
+	return func(e *EvalContext) {
+		e.resultReader = f
 	}
 }
 
@@ -1851,6 +1861,24 @@ func (r *Rego) eval(ctx context.Context, ectx *EvalContext) (ResultSet, error) {
 	go waitForDone(ctx, exit, func() {
 		c.Cancel()
 	})
+
+	if iter := ectx.resultReader; iter != nil {
+		err := q.Iter(ctx, func(qr topdown.QueryResult) error {
+			for k, term := range qr {
+				rewritten := ectx.compiledQuery.compiler.RewrittenVars()
+
+				if rw, ok := rewritten[k]; ok {
+					k = rw
+				}
+				// if isTermVar(k) || isTermWasmVar(k) || k.IsGenerated() || k.IsWildcard() {
+				// 	continue
+				// }
+				iter(k, term.Value)
+			}
+			return nil
+		})
+		return nil, err
+	}
 
 	var rs ResultSet
 	err := q.Iter(ctx, func(qr topdown.QueryResult) error {
