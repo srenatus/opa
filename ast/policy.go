@@ -102,6 +102,7 @@ var Keywords = [...]string{
 	"true",
 	"false",
 	"some",
+	"in",
 }
 
 // IsKeyword returns true if s is a language keyword.
@@ -232,6 +233,14 @@ type (
 		Location *Location `json:"-"`
 		Target   *Term     `json:"target"`
 		Value    *Term     `json:"value"`
+	}
+
+	// InExpr represents a "in" expression.
+	InExpr struct {
+		Location   *Location `json:"-"`
+		Some       bool      `json:"some,omitempty"` // is it "some x in y"?
+		Container  *Term     `json:"container"`
+		Containees []*Term   `json:"containees"`
 	}
 )
 
@@ -1225,12 +1234,12 @@ func (expr *Expr) NoWith() *Expr {
 
 // IsEquality returns true if this is an equality expression.
 func (expr *Expr) IsEquality() bool {
-	return isglobalbuiltin(expr, Var(Equality.Name))
+	return isGlobalBuiltin(expr, Var(Equality.Name))
 }
 
 // IsAssignment returns true if this an assignment expression.
 func (expr *Expr) IsAssignment() bool {
-	return isglobalbuiltin(expr, Var(Assign.Name))
+	return isGlobalBuiltin(expr, Var(Assign.Name))
 }
 
 // IsCall returns true if this expression calls a function.
@@ -1329,6 +1338,8 @@ func (expr *Expr) String() string {
 		buf = append(buf, t.String())
 	case *SomeDecl:
 		buf = append(buf, t.String())
+	case *InExpr:
+		buf = append(buf, t.String())
 	}
 
 	for i := range expr.With {
@@ -1395,6 +1406,55 @@ func (d *SomeDecl) Compare(other *SomeDecl) int {
 // Hash returns a hash code of d.
 func (d *SomeDecl) Hash() int {
 	return termSliceHash(d.Symbols)
+}
+
+func (d *InExpr) String() string {
+	buf := strings.Builder{}
+	if d.Some {
+		buf.WriteString("some ")
+	}
+	for i, c := range d.Containees {
+		if i > 0 {
+			buf.WriteString(", ")
+		}
+		buf.WriteString(c.String())
+	}
+	buf.WriteString(" in ")
+	buf.WriteString(d.Container.String())
+	return buf.String()
+}
+
+// SetLoc sets the Location on d.
+func (d *InExpr) SetLoc(loc *Location) {
+	d.Location = loc
+}
+
+// Loc returns the Location of d.
+func (d *InExpr) Loc() *Location {
+	return d.Location
+}
+
+// Copy returns a deep copy of d.
+func (d *InExpr) Copy() *InExpr {
+	return &InExpr{
+		Some:       d.Some,
+		Containees: termSliceCopy(d.Containees),
+		Container:  d.Container.Copy(),
+	}
+}
+
+// Compare returns an integer indicating whether d is less than, equal to, or
+// greater than other.
+func (d *InExpr) Compare(other *InExpr) int {
+	if x := Compare(d.Some, other.Some); x != 0 {
+		return x
+	}
+	return termSliceCompare(append(d.Containees, d.Container), append(other.Containees, other.Container))
+}
+
+// Hash returns a hash code of d.
+func (d *InExpr) Hash() int {
+	return termSliceHash(append(d.Containees, d.Container))*10 + Boolean(d.Some).Hash()
 }
 
 func (w *With) String() string {
@@ -1477,6 +1537,8 @@ func Copy(x interface{}) interface{} {
 	case *With:
 		return x.Copy()
 	case *SomeDecl:
+		return x.Copy()
+	case *InExpr:
 		return x.Copy()
 	case *Term:
 		return x.Copy()
@@ -1578,7 +1640,7 @@ func validEqAssignArgCount(expr *Expr) bool {
 
 // this function checks if the expr refers to a non-namespaced (global) built-in
 // function like eq, gt, plus, etc.
-func isglobalbuiltin(expr *Expr, name Var) bool {
+func isGlobalBuiltin(expr *Expr, name Var) bool {
 	terms, ok := expr.Terms.([]*Term)
 	if !ok {
 		return false
@@ -1589,9 +1651,9 @@ func isglobalbuiltin(expr *Expr, name Var) bool {
 	ref, ok := terms[0].Value.(Ref)
 	if !ok || len(ref) != 1 {
 		return false
-	} else if head, ok := ref[0].Value.(Var); !ok {
-		return false
-	} else {
+	}
+	if head, ok := ref[0].Value.(Var); ok {
 		return head.Equal(name)
 	}
+	return false
 }

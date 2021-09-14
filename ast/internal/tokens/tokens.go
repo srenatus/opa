@@ -30,6 +30,7 @@ const (
 	Else
 	Not
 	Some
+	In
 	With
 	Null
 	True
@@ -110,6 +111,7 @@ var strings = [...]string{
 	Lte:        "lte",
 	Dot:        ".",
 	Semicolon:  ";",
+	In:         "in",
 }
 
 var keywords = map[string]Token{
@@ -120,6 +122,7 @@ var keywords = map[string]Token{
 	"else":    Else,
 	"not":     Not,
 	"some":    Some,
+	"in":      In,
 	"with":    With,
 	"null":    Null,
 	"true":    True,

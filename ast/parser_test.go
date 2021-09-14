@@ -712,6 +712,19 @@ func TestSomeDeclExpr(t *testing.T) {
 	})
 }
 
+func TestInExpr(t *testing.T) {
+
+	assertParseOneExpr(t, "some+one", "some x in xs", &Expr{
+		Terms: &InExpr{
+			Some: true,
+			Containees: []*Term{
+				VarTerm("x"),
+			},
+			Container: VarTerm("xs"),
+		},
+	})
+}
+
 func TestNestedExpressions(t *testing.T) {
 
 	n1 := IntNumberTerm(1)

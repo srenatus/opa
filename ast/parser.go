@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"math/big"
 	"regexp"
 	"strconv"
@@ -614,27 +615,53 @@ func (p *Parser) parseLiteral() (expr *Expr) {
 		}
 	}()
 
-	var negated bool
-	switch p.s.tok {
-	case tokens.Some:
-		return p.parseSome()
-	case tokens.Not:
+	var negated, some bool
+	if p.s.tok == tokens.Not {
 		p.scan()
 		negated = true
-		fallthrough
-	default:
-		expr := p.parseExpr()
+	}
+	if p.s.tok == tokens.Some {
+		some = true
+	}
+
+	s := p.save()
+	// attempt to parse `some x, "y", _ in c`
+	p.scan()
+	if cs := p.parseTermList(tokens.In, nil); cs != nil {
+		p.scan() // discard "in"
+		expr = p.parseInExpr(some, cs)
 		if expr != nil {
-			expr.Negated = negated
-			if p.s.tok == tokens.With {
-				if expr.With = p.parseWith(); expr.With == nil {
-					return nil
-				}
-			}
 			return expr
 		}
+	}
+	log.Printf("made it: %v, some: %v", p.s, some)
+
+	// fall back to "some x, y, z"
+	if some {
+		p.restore(s)
+		log.Printf("Restored, some @ %v", p.s)
+		return p.parseSome()
+	}
+
+	expr = p.parseExpr()
+	if expr != nil {
+		expr.Negated = negated
+		if p.s.tok == tokens.With {
+			if expr.With = p.parseWith(); expr.With == nil {
+				return nil
+			}
+		}
+		return expr
+	}
+	return nil
+}
+
+func (p *Parser) parseInExpr(some bool, cs []*Term) *Expr {
+	e := InExpr{Some: some, Containees: cs}
+	if e.Container = p.parseTermRelation(); e.Container == nil {
 		return nil
 	}
+	return NewExpr(&e)
 }
 
 func (p *Parser) parseWith() []*With {
@@ -693,12 +720,7 @@ func (p *Parser) parseSome() *Expr {
 	decl.SetLoc(p.s.Loc())
 
 	for {
-
 		p.scan()
-
-		switch p.s.tok {
-		case tokens.Ident:
-		}
 
 		if p.s.tok != tokens.Ident {
 			p.illegal("expected var")
@@ -720,7 +742,6 @@ func (p *Parser) parseSome() *Expr {
 func (p *Parser) parseExpr() *Expr {
 
 	lhs := p.parseTermRelation()
-
 	if lhs == nil {
 		return nil
 	}
@@ -1439,6 +1460,7 @@ func (p *Parser) illegal(note string, a ...interface{}) {
 	if len(note) > 0 {
 		p.errorf(p.s.Loc(), "unexpected %s %s: %v", tok, tokType, note)
 	} else {
+		// debug.PrintStack()
 		p.errorf(p.s.Loc(), "unexpected %s %s", tok, tokType)
 	}
 }

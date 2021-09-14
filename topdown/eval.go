@@ -324,6 +324,8 @@ func (e *eval) evalStep(iter evalIterator) error {
 			}
 			return nil
 		})
+	case *ast.InExpr:
+		// TODO
 	}
 
 	if err != nil {

@@ -527,6 +527,48 @@ func TestSomeDeclString(t *testing.T) {
 	}
 }
 
+func TestInExprString(t *testing.T) {
+	tests := map[string]*InExpr{
+		`some a, b in ["foo"]`: {
+			Some: true,
+			Containees: []*Term{
+				VarTerm("a"),
+				VarTerm("b"),
+			},
+			Container: ArrayTerm(StringTerm("foo")),
+		},
+		`some "a", _ in ["foo", 120]`: {
+			Some: true,
+			Containees: []*Term{
+				StringTerm("a"),
+				VarTerm("_"),
+			},
+			Container: ArrayTerm(StringTerm("foo"), IntNumberTerm(120)),
+		},
+		`"a" in x`: {
+			Some: false,
+			Containees: []*Term{
+				StringTerm("a"),
+			},
+			Container: VarTerm("x"),
+		},
+		`some x in xs`: {
+			Some: true,
+			Containees: []*Term{
+				VarTerm("x"),
+			},
+			Container: VarTerm("xs"),
+		},
+	}
+
+	for exp, stmt := range tests {
+		act := stmt.String()
+		if act != exp {
+			t.Errorf("expected %q, got %q", exp, act)
+		}
+	}
+}
+
 func TestAnnotationsString(t *testing.T) {
 	a := &Annotations{
 		Scope: "foo",
