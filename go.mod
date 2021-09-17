@@ -40,3 +40,7 @@ require (
 	gopkg.in/check.v1 v1.0.0-20200227125254-8fa46927fb4f // indirect
 	gopkg.in/yaml.v2 v2.4.0
 )
+
+// HACK: as there are issues with sum value of v1.12.0, make sure to update this when badger updates its dependencies
+// See issue: https://github.com/google/flatbuffers/issues/6466
+replace github.com/google/flatbuffers v1.12.0 => github.com/google/flatbuffers v1.12.1
