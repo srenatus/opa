@@ -14,6 +14,7 @@ require (
 	github.com/gobwas/glob v0.2.3
 	github.com/golang/glog v1.0.0 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
+	github.com/google/flatbuffers v1.12.1 // indirect
 	github.com/gorilla/mux v1.8.0
 	github.com/klauspost/compress v1.13.5 // indirect
 	github.com/kr/text v0.2.0 // indirect
