@@ -692,7 +692,17 @@ func (p *Parser) parseSome() *Expr {
 	decl := &SomeDecl{}
 	decl.SetLoc(p.s.Loc())
 
-	for {
+	// Attempt to parse "some x in xs", which will end up in
+	//   SomeDecl{Symbols: "member(x, xs)"}
+	s := p.save()
+	p.scan()
+	if term := p.parseTermRelation(); term != nil {
+		decl.Symbols = []*Term{term}
+		return NewExpr(decl).SetLocation(decl.Location)
+	}
+	p.restore(s)
+
+	for { // collecting var args
 
 		p.scan()
 

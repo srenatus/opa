@@ -3113,7 +3113,12 @@ func declaredVars(x interface{}) VarSet {
 				})
 			} else if decl, ok := x.Terms.(*SomeDecl); ok {
 				for i := range decl.Symbols {
-					vars.Add(decl.Symbols[i].Value.(Var))
+					switch val := decl.Symbols[i].Value.(type) {
+					case Var:
+						vars.Add(val)
+					case Call:
+						// nothing
+					}
 				}
 			}
 		case *ArrayComprehension, *SetComprehension, *ObjectComprehension:
@@ -3625,7 +3630,7 @@ func rewriteDeclaredVarsInBody(g *localVarGenerator, stack *localDeclaredVars, u
 		if body[i].IsAssignment() {
 			expr, errs = rewriteDeclaredAssignment(g, stack, body[i], errs)
 		} else if decl, ok := body[i].Terms.(*SomeDecl); ok {
-			errs = rewriteSomeDeclStatement(g, stack, decl, errs)
+			expr, errs = rewriteSomeDeclStatement(g, stack, decl, body[i], errs)
 		} else {
 			expr, errs = rewriteDeclaredVarsInExpr(g, stack, body[i], errs)
 		}
@@ -3680,14 +3685,35 @@ func checkUnusedDeclaredVars(loc *Location, stack *localDeclaredVars, used VarSe
 	return errs
 }
 
-func rewriteSomeDeclStatement(g *localVarGenerator, stack *localDeclaredVars, decl *SomeDecl, errs Errors) Errors {
+func rewriteSomeDeclStatement(g *localVarGenerator, stack *localDeclaredVars, decl *SomeDecl, expr *Expr, errs Errors) (*Expr, Errors) {
 	for i := range decl.Symbols {
-		v := decl.Symbols[i].Value.(Var)
-		if _, err := rewriteDeclaredVar(g, stack, v, declaredVar); err != nil {
-			errs = append(errs, NewError(CompileErr, decl.Loc(), err.Error()))
+		switch v := decl.Symbols[i].Value.(type) {
+		case Var:
+			if _, err := rewriteDeclaredVar(g, stack, v, declaredVar); err != nil {
+				return nil, append(errs, NewError(CompileErr, decl.Loc(), err.Error()))
+			}
+		case Call: // "some x in xs" declares "x" (via `member(x, xs)`)
+			switch v[1].Value.(type) {
+			case Var:
+				e := expr.Copy()
+				e.Terms = []*Term{
+					RefTerm(VarTerm(Assign.Name)), // TODO: SetLocation
+					v[1].Copy(),
+					RefTerm(v[2].Copy(), Wildcard),
+				}
+				return rewriteDeclaredAssignment(g, stack, e, errs)
+			default:
+				e := expr.Copy()
+				e.Terms = []*Term{
+					RefTerm(VarTerm(Equal.Name)),
+					v[1].Copy(),
+					RefTerm(v[2].Copy(), Wildcard),
+				}
+				return e, errs
+			}
 		}
 	}
-	return errs
+	return nil, errs
 }
 
 func rewriteDeclaredVarsInExpr(g *localVarGenerator, stack *localDeclaredVars, expr *Expr, errs Errors) (*Expr, Errors) {
