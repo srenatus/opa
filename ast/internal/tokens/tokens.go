@@ -57,6 +57,7 @@ const (
 	Unify
 	Equal
 	Assign
+	In
 	Neq
 	Gt
 	Lt
@@ -103,6 +104,7 @@ var strings = [...]string{
 	Unify:      "eq",
 	Equal:      "equal",
 	Assign:     "assign",
+	In:         "in",
 	Neq:        "neq",
 	Gt:         "gt",
 	Lt:         "lt",
@@ -124,6 +126,7 @@ var keywords = map[string]Token{
 	"null":    Null,
 	"true":    True,
 	"false":   False,
+	"in":      In,
 }
 
 // Keyword will return a token for the passed in

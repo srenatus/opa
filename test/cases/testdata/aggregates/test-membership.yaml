@@ -1,0 +1,111 @@
+cases:
+- data:
+  modules:
+  - |
+    package test
+
+    p {
+      1 in {1}
+    }
+  note: aggregates/member simple, set
+  query: data.test.p = x
+  want_result:
+  - x: true
+- data:
+  modules:
+  - |
+    package test
+
+    p {
+      1 in [1]
+    }
+  note: aggregates/member simple, array
+  query: data.test.p = x
+  want_result:
+  - x: true
+- data:
+  modules:
+  - |
+    package test
+
+    p {
+      1 in {"foo": 1}
+    }
+  note: aggregates/member simple, object
+  query: data.test.p = x
+  want_result:
+  - x: true
+- data:
+  modules:
+  - |
+    package test
+
+    p = x {
+      x := 1 in {2}
+    }
+  note: aggregates/member simple false, set
+  query: data.test.p = x
+  want_result:
+  - x: false
+- data:
+  modules:
+  - |
+    package test
+
+    p = x {
+      x := 1 in [2]
+    }
+  note: aggregates/member simple false, array
+  query: data.test.p = x
+  want_result:
+  - x: false
+- data:
+  modules:
+  - |
+    package test
+
+    p = x {
+      x := 1 in {"foo": 2}
+    }
+  note: aggregates/member simple false, object
+  query: data.test.p = x
+  want_result:
+  - x: false
+- data:
+  modules:
+  - |
+    package test
+
+    p {
+      {1,2} in [{1,2}] in [true]
+    }
+  note: aggregates/member chained
+  query: data.test.p = x
+  want_result:
+  - x: true
+- data:
+  modules:
+  - |
+    package test
+
+    p {
+      x := "foo"
+      xs := ["foo", "bar"]
+      x in xs
+    }
+  note: aggregates/member with vars
+  query: data.test.p = x
+  want_result:
+  - x: true
+- data:
+  modules:
+  - |
+    package test
+
+    p {
+      not "foo" in ["fox"]
+    }
+  note: aggregates/member with not
+  query: data.test.p = x
+  want_result:
+  - x: true

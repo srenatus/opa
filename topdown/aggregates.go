@@ -206,6 +206,33 @@ func builtinAny(a ast.Value) (ast.Value, error) {
 	}
 }
 
+func builtinMember(_ BuiltinContext, args []*ast.Term, iter func(*ast.Term) error) error {
+	containee := args[0]
+	switch c := args[1].Value.(type) {
+	case ast.Set:
+		return iter(ast.BooleanTerm(c.Contains(containee)))
+	case *ast.Array:
+		ret := false
+		c.Until(func(v *ast.Term) bool {
+			if v.Value.Compare(containee.Value) == 0 {
+				ret = true
+			}
+			return ret
+		})
+		return iter(ast.BooleanTerm(ret))
+	case ast.Object:
+		ret := false
+		c.Until(func(_, v *ast.Term) bool {
+			if v.Value.Compare(containee.Value) == 0 {
+				ret = true
+			}
+			return ret
+		})
+		return iter(ast.BooleanTerm(ret))
+	}
+	return nil
+}
+
 func init() {
 	RegisterFunctionalBuiltin1(ast.Count.Name, builtinCount)
 	RegisterFunctionalBuiltin1(ast.Sum.Name, builtinSum)
@@ -215,4 +242,5 @@ func init() {
 	RegisterFunctionalBuiltin1(ast.Sort.Name, builtinSort)
 	RegisterFunctionalBuiltin1(ast.Any.Name, builtinAny)
 	RegisterFunctionalBuiltin1(ast.All.Name, builtinAll)
+	RegisterBuiltinFunc(ast.Member.Name, builtinMember)
 }

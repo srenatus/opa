@@ -833,7 +833,7 @@ func (p *Parser) parseTermArith(lhs *Term, offset int) *Term {
 
 func (p *Parser) parseTermFactor(lhs *Term, offset int) *Term {
 	if lhs == nil {
-		lhs = p.parseTerm()
+		lhs = p.parseTermIn(nil, offset)
 	}
 	if lhs != nil {
 		if op := p.parseTermOp(tokens.Mul, tokens.Quo, tokens.Rem); op != nil {
@@ -842,6 +842,26 @@ func (p *Parser) parseTermFactor(lhs *Term, offset int) *Term {
 				switch p.s.tok {
 				case tokens.Mul, tokens.Quo, tokens.Rem:
 					return p.parseTermFactor(call, offset)
+				default:
+					return call
+				}
+			}
+		}
+	}
+	return lhs
+}
+
+func (p *Parser) parseTermIn(lhs *Term, offset int) *Term {
+	if lhs == nil {
+		lhs = p.parseTerm()
+	}
+	if lhs != nil {
+		if op := p.parseTermOpName(Member.Name, tokens.In); op != nil {
+			if rhs := p.parseTerm(); rhs != nil {
+				call := p.setLoc(CallTerm(op, lhs, rhs), lhs.Location, offset, p.s.lastEnd)
+				switch p.s.tok {
+				case tokens.In:
+					return p.parseTermIn(call, offset)
 				default:
 					return call
 				}
@@ -1381,6 +1401,17 @@ func (p *Parser) parseTermOp(values ...tokens.Token) *Term {
 	for i := range values {
 		if p.s.tok == values[i] {
 			r := RefTerm(VarTerm(fmt.Sprint(p.s.tok)).SetLocation(p.s.Loc())).SetLocation(p.s.Loc())
+			p.scan()
+			return r
+		}
+	}
+	return nil
+}
+
+func (p *Parser) parseTermOpName(name string, values ...tokens.Token) *Term {
+	for i := range values {
+		if p.s.tok == values[i] {
+			r := RefTerm(VarTerm(name).SetLocation(p.s.Loc())).SetLocation(p.s.Loc())
 			p.scan()
 			return r
 		}

@@ -1769,6 +1769,49 @@
       }
     },
     {
+      "name": "member",
+      "decl": {
+        "args": [
+          {
+            "type": "any"
+          },
+          {
+            "of": [
+              {
+                "of": {
+                  "type": "any"
+                },
+                "type": "set"
+              },
+              {
+                "dynamic": {
+                  "type": "any"
+                },
+                "type": "array"
+              },
+              {
+                "dynamic": {
+                  "key": {
+                    "type": "any"
+                  },
+                  "value": {
+                    "type": "any"
+                  }
+                },
+                "type": "object"
+              }
+            ],
+            "type": "any"
+          }
+        ],
+        "result": {
+          "type": "boolean"
+        },
+        "type": "function"
+      },
+      "infix": "in"
+    },
+    {
       "name": "min",
       "decl": {
         "args": [
