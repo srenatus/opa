@@ -1230,12 +1230,12 @@ func (expr *Expr) NoWith() *Expr {
 
 // IsEquality returns true if this is an equality expression.
 func (expr *Expr) IsEquality() bool {
-	return isglobalbuiltin(expr, Var(Equality.Name))
+	return isGlobalBuiltin(expr, Var(Equality.Name))
 }
 
 // IsAssignment returns true if this an assignment expression.
 func (expr *Expr) IsAssignment() bool {
-	return isglobalbuiltin(expr, Var(Assign.Name))
+	return isGlobalBuiltin(expr, Var(Assign.Name))
 }
 
 // IsCall returns true if this expression calls a function.
@@ -1583,7 +1583,7 @@ func validEqAssignArgCount(expr *Expr) bool {
 
 // this function checks if the expr refers to a non-namespaced (global) built-in
 // function like eq, gt, plus, etc.
-func isglobalbuiltin(expr *Expr, name Var) bool {
+func isGlobalBuiltin(expr *Expr, name Var) bool {
 	terms, ok := expr.Terms.([]*Term)
 	if !ok {
 		return false
@@ -1594,9 +1594,9 @@ func isglobalbuiltin(expr *Expr, name Var) bool {
 	ref, ok := terms[0].Value.(Ref)
 	if !ok || len(ref) != 1 {
 		return false
-	} else if head, ok := ref[0].Value.(Var); !ok {
-		return false
-	} else {
+	}
+	if head, ok := ref[0].Value.(Var); ok {
 		return head.Equal(name)
 	}
+	return false
 }
