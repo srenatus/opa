@@ -3693,24 +3693,23 @@ func rewriteSomeDeclStatement(g *localVarGenerator, stack *localDeclaredVars, de
 				return nil, append(errs, NewError(CompileErr, decl.Loc(), err.Error()))
 			}
 		case Call: // "some x in xs" declares "x" (via `member(x, xs)`)
-			switch v[1].Value.(type) {
-			case Var:
+			if !v[1].Value.IsGround() {
 				e := expr.Copy()
 				e.Terms = []*Term{
-					RefTerm(VarTerm(Assign.Name)), // TODO: SetLocation
+					RefTerm(VarTerm(Assign.Name)),
 					v[1].Copy(),
 					RefTerm(v[2].Copy(), NewTerm(g.Generate())),
 				}
 				return rewriteDeclaredAssignment(g, stack, e, errs)
-			default:
-				e := expr.Copy()
-				e.Terms = []*Term{
-					RefTerm(VarTerm(Member.Name)),
-					v[1].Copy(),
-					v[2].Copy(),
-				}
-				return e, errs
 			}
+
+			// If it's ground, we merely remove the "some" wrapping, so
+			//     some "foo" in ["foo", "bar"]
+			// becomes
+			//     "foo" in ["foo", "bar"]
+			e := expr.Copy()
+			e.Terms = []*Term(v)
+			return e, errs
 		}
 	}
 	return nil, errs
