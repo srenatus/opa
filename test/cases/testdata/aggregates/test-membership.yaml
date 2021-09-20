@@ -109,3 +109,15 @@ cases:
   query: data.test.p = x
   want_result:
   - x: true
+- data:
+  modules:
+  - |
+    package test
+
+    p {
+      1+1 in [2]
+    }
+  note: aggregates/member operator precedence
+  query: data.test.p = x
+  want_result:
+  - x: true

@@ -756,7 +756,27 @@ func (p *Parser) parseExpr() *Expr {
 // term cannot be parsed the return value is nil and error will be recorded. The
 // scanner will be advanced to the next token before returning.
 func (p *Parser) parseTermRelation() *Term {
-	return p.parseTermRelationRec(nil, p.s.loc.Offset)
+	return p.parseTermInRec(nil, p.s.loc.Offset)
+}
+
+func (p *Parser) parseTermInRec(lhs *Term, offset int) *Term {
+	if lhs == nil {
+		lhs = p.parseTermRelationRec(nil, offset)
+	}
+	if lhs != nil {
+		if op := p.parseTermOpName(Member.Name, tokens.In); op != nil {
+			if rhs := p.parseTermRelationRec(nil, p.s.loc.Offset); rhs != nil {
+				call := p.setLoc(CallTerm(op, lhs, rhs), lhs.Location, offset, p.s.lastEnd)
+				switch p.s.tok {
+				case tokens.In:
+					return p.parseTermInRec(call, offset)
+				default:
+					return call
+				}
+			}
+		}
+	}
+	return lhs
 }
 
 func (p *Parser) parseTermRelationRec(lhs *Term, offset int) *Term {
@@ -843,7 +863,7 @@ func (p *Parser) parseTermArith(lhs *Term, offset int) *Term {
 
 func (p *Parser) parseTermFactor(lhs *Term, offset int) *Term {
 	if lhs == nil {
-		lhs = p.parseTermIn(nil, offset)
+		lhs = p.parseTerm()
 	}
 	if lhs != nil {
 		if op := p.parseTermOp(tokens.Mul, tokens.Quo, tokens.Rem); op != nil {
@@ -852,26 +872,6 @@ func (p *Parser) parseTermFactor(lhs *Term, offset int) *Term {
 				switch p.s.tok {
 				case tokens.Mul, tokens.Quo, tokens.Rem:
 					return p.parseTermFactor(call, offset)
-				default:
-					return call
-				}
-			}
-		}
-	}
-	return lhs
-}
-
-func (p *Parser) parseTermIn(lhs *Term, offset int) *Term {
-	if lhs == nil {
-		lhs = p.parseTerm()
-	}
-	if lhs != nil {
-		if op := p.parseTermOpName(Member.Name, tokens.In); op != nil {
-			if rhs := p.parseTerm(); rhs != nil {
-				call := p.setLoc(CallTerm(op, lhs, rhs), lhs.Location, offset, p.s.lastEnd)
-				switch p.s.tok {
-				case tokens.In:
-					return p.parseTermIn(call, offset)
 				default:
 					return call
 				}
