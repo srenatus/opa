@@ -3699,15 +3699,15 @@ func rewriteSomeDeclStatement(g *localVarGenerator, stack *localDeclaredVars, de
 				e.Terms = []*Term{
 					RefTerm(VarTerm(Assign.Name)), // TODO: SetLocation
 					v[1].Copy(),
-					RefTerm(v[2].Copy(), Wildcard),
+					RefTerm(v[2].Copy(), NewTerm(g.Generate())),
 				}
 				return rewriteDeclaredAssignment(g, stack, e, errs)
 			default:
 				e := expr.Copy()
 				e.Terms = []*Term{
-					RefTerm(VarTerm(Equal.Name)),
+					RefTerm(VarTerm(Member.Name)),
 					v[1].Copy(),
-					RefTerm(v[2].Copy(), Wildcard),
+					v[2].Copy(),
 				}
 				return e, errs
 			}
