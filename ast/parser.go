@@ -696,8 +696,20 @@ func (p *Parser) parseSome() *Expr {
 	//   SomeDecl{Symbols: "member(x, xs)"}
 	s := p.save()
 	p.scan()
-	if term := p.parseTermRelation(); term != nil {
-		decl.Symbols = []*Term{term}
+	if terms := p.parseTermList(tokens.In, nil); terms != nil {
+		call := ([]*Term{
+			RefTerm(VarTerm(Member.Name).SetLocation(decl.Location)).SetLocation(decl.Location),
+		})
+		call = append(call, terms...)
+		p.scan() // step over "in"
+
+		container := p.parseTermRelation()
+		if container == nil {
+			return nil // TODO: ?
+		}
+		call = append(call, container)
+		decl.Symbols = []*Term{CallTerm(call...)}
+
 		return NewExpr(decl).SetLocation(decl.Location)
 	}
 	p.restore(s)
@@ -756,27 +768,7 @@ func (p *Parser) parseExpr() *Expr {
 // term cannot be parsed the return value is nil and error will be recorded. The
 // scanner will be advanced to the next token before returning.
 func (p *Parser) parseTermRelation() *Term {
-	return p.parseTermInRec(nil, p.s.loc.Offset)
-}
-
-func (p *Parser) parseTermInRec(lhs *Term, offset int) *Term {
-	if lhs == nil {
-		lhs = p.parseTermRelationRec(nil, offset)
-	}
-	if lhs != nil {
-		if op := p.parseTermOpName(Member.Name, tokens.In); op != nil {
-			if rhs := p.parseTermRelationRec(nil, p.s.loc.Offset); rhs != nil {
-				call := p.setLoc(CallTerm(op, lhs, rhs), lhs.Location, offset, p.s.lastEnd)
-				switch p.s.tok {
-				case tokens.In:
-					return p.parseTermInRec(call, offset)
-				default:
-					return call
-				}
-			}
-		}
-	}
-	return lhs
+	return p.parseTermRelationRec(nil, p.s.loc.Offset)
 }
 
 func (p *Parser) parseTermRelationRec(lhs *Term, offset int) *Term {
