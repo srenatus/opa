@@ -1517,6 +1517,64 @@ q {
 ```live:eg/assignment2:output:expect_assigned_above,expect_referenced_above
 ```
 
+#### Membership `in`
+
+The membership operator `in` lets you check if an element is part of a collection (array, set, or object). It always evaluates to `true` or `false`:
+
+```live:eg/member1:module:merge_down
+p = [x, y, z] {
+    x := 3 in [1, 2, 3]            # array
+    y := 3 in {1, 2, 3}            # set
+    z := 3 in {"foo": 1, "bar": 3} # object
+}
+```
+```live:eg/member1:output
+```
+
+Using the `some` variant, it can be used to introduce new variables based on a collections' items:
+
+```live:eg/member2:module:merge_down
+p[x] {
+    some x in ["a", "r", "r", "a", "y"]
+}
+
+q[x] {
+    some x in {"s", "e", "t"}
+}
+
+r[x] {
+    some x in {"foo": "bar", "baz": "quz"}
+}
+```
+```live:eg/member2:output
+```
+
+Furthermore, passing a second argument allows you to work with _object keys_ and _array indices_:
+```live:eg/member3:module:merge_down
+p[x] {
+    some x, "r" in ["a", "r", "r", "a", "y"] # key variable, value constant
+}
+
+q[x] = y {
+     some x, y in ["a", "r", "r", "a", "y"] # both variables
+}
+
+r[y] = x {
+    some x, y in {"foo": "bar", "baz": "quz"}
+}
+```
+```live:eg/member3:output
+```
+
+The argument in value position (the second term), can be a composite, non-ground value:
+
+```live:eg/member4:module:merge_down
+p[x] = y {
+    some x, {"foo": y} in [{"foo": 100}, {"bar": 200}]
+}
+```
+```live:eg/member4:output
+```
 
 #### Comparison `==`
 
