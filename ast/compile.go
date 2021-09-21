@@ -3117,7 +3117,19 @@ func declaredVars(x interface{}) VarSet {
 					case Var:
 						vars.Add(val)
 					case Call:
-						// nothing
+						switch len(val) {
+						case 4: // some x, y in xs
+							WalkVars(val[2], func(v Var) bool {
+								vars.Add(v)
+								return false
+							})
+							fallthrough // also walk operand 0
+						case 3: // some x in xs
+							WalkVars(val[1], func(v Var) bool {
+								vars.Add(v)
+								return false
+							})
+						}
 					}
 				}
 			}
