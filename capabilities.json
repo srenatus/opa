@@ -1778,11 +1778,51 @@
           {
             "of": [
               {
+                "dynamic": {
+                  "type": "any"
+                },
+                "type": "array"
+              },
+              {
+                "dynamic": {
+                  "key": {
+                    "type": "any"
+                  },
+                  "value": {
+                    "type": "any"
+                  }
+                },
+                "type": "object"
+              },
+              {
                 "of": {
                   "type": "any"
                 },
                 "type": "set"
-              },
+              }
+            ],
+            "type": "any"
+          }
+        ],
+        "result": {
+          "type": "boolean"
+        },
+        "type": "function"
+      },
+      "infix": "in"
+    },
+    {
+      "name": "member/3",
+      "decl": {
+        "args": [
+          {
+            "type": "any"
+          },
+          {
+            "type": "any"
+          },
+          {
+            "of": [
               {
                 "dynamic": {
                   "type": "any"
@@ -1799,6 +1839,12 @@
                   }
                 },
                 "type": "object"
+              },
+              {
+                "of": {
+                  "type": "any"
+                },
+                "type": "set"
               }
             ],
             "type": "any"
