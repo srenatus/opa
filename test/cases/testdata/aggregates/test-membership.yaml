@@ -40,6 +40,78 @@ cases:
   - |
     package test
 
+    p {
+      "foo", 1 in {"foo": 1}
+    }
+  note: aggregates/member object with key
+  query: data.test.p = x
+  want_result:
+  - x: true
+- data:
+  modules:
+  - |
+    package test
+
+    p {
+      1, "two" in ["one", "two", "three"]
+    }
+  note: aggregates/member array with index
+  query: data.test.p = x
+  want_result:
+  - x: true
+- data:
+  modules:
+  - |
+    package test
+
+    p {
+      1, (2 in [2]) in [false, true]
+    }
+  note: aggregates/member array with index, nested
+  query: data.test.p = x
+  want_result:
+  - x: true
+- data:
+  modules:
+  - |
+    package test
+
+    p {
+      0, 2 in [2] in [true]
+    }
+  note: aggregates/member array with index, nested, associativity without parens
+  query: data.test.p = x
+  want_result:
+  - x: true
+- data:
+  modules:
+  - |
+    package test
+
+    p {
+      "foo", 2 in {"foo": 2} in [true]
+    }
+  note: aggregates/member object with key, nested, associativity without parens
+  query: data.test.p = x
+  want_result:
+  - x: true
+- data:
+  modules:
+  - |
+    package test
+
+    p {
+      "foo", (2 in {"bar": 2}) in {"foo": true}
+    }
+  note: aggregates/member object with key, nested
+  query: data.test.p = x
+  want_result:
+  - x: true
+- data:
+  modules:
+  - |
+    package test
+
     p = x {
       x := 1 in {2}
     }

@@ -761,10 +761,34 @@ func (p *Parser) parseTermInfixCall() *Term {
 }
 
 func (p *Parser) parseTermIn(lhs *Term, offset int) *Term {
+	// NOTE(sr): `in` is a bit special: besides `lhs in rhs`, it also
+	// supports `key, val in rhs`, so it can have an optional second lhs.
 	if lhs == nil {
 		lhs = p.parseTermRelation(nil, offset)
 	}
 	if lhs != nil {
+		if p.s.tok == tokens.Comma { // second "lhs", or "middle hand side"
+			// NOTE(sr): We need to save and restore here because the way Calls are parsed,
+			// we'd swallow the second argument, attempting to find the mhs of an arity-3
+			// member call.
+			// Concretely, `numbers.range(1,2) in [3]` would be parsed as `member(numbers.range(1), [3])`.
+			s := p.save()
+			p.scan()
+			if mhs := p.parseTermRelation(nil, offset); mhs != nil {
+				if op := p.parseTermOpName(MemberWithKey.Name, tokens.In); op != nil {
+					if rhs := p.parseTermRelation(nil, p.s.loc.Offset); rhs != nil {
+						call := p.setLoc(CallTerm(op, lhs, mhs, rhs), lhs.Location, offset, p.s.lastEnd)
+						switch p.s.tok {
+						case tokens.In:
+							return p.parseTermIn(call, offset)
+						default:
+							return call
+						}
+					}
+				}
+			}
+			p.restore(s)
+		}
 		if op := p.parseTermOpName(Member.Name, tokens.In); op != nil {
 			if rhs := p.parseTermRelation(nil, p.s.loc.Offset); rhs != nil {
 				call := p.setLoc(CallTerm(op, lhs, rhs), lhs.Location, offset, p.s.lastEnd)

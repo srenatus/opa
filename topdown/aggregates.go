@@ -233,6 +233,19 @@ func builtinMember(_ BuiltinContext, args []*ast.Term, iter func(*ast.Term) erro
 	return nil
 }
 
+func builtinMemberWithKey(_ BuiltinContext, args []*ast.Term, iter func(*ast.Term) error) error {
+	key, val := args[0], args[1]
+	switch c := args[2].Value.(type) {
+	case interface{ Get(*ast.Term) *ast.Term }:
+		ret := false
+		if act := c.Get(key); act != nil {
+			ret = act.Value.Compare(val.Value) == 0
+		}
+		return iter(ast.BooleanTerm(ret))
+	}
+	return nil
+}
+
 func init() {
 	RegisterFunctionalBuiltin1(ast.Count.Name, builtinCount)
 	RegisterFunctionalBuiltin1(ast.Sum.Name, builtinSum)
@@ -243,4 +256,5 @@ func init() {
 	RegisterFunctionalBuiltin1(ast.Any.Name, builtinAny)
 	RegisterFunctionalBuiltin1(ast.All.Name, builtinAll)
 	RegisterBuiltinFunc(ast.Member.Name, builtinMember)
+	RegisterBuiltinFunc(ast.MemberWithKey.Name, builtinMemberWithKey)
 }

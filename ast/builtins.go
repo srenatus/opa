@@ -35,6 +35,7 @@ var DefaultBuiltins = [...]*Builtin{
 
 	// Membership, infix "in": `x in xs`
 	Member,
+	MemberWithKey,
 
 	// Comparisons
 	GreaterThan,
@@ -294,13 +295,31 @@ var Assign = &Builtin{
 	),
 }
 
-// Member represents the `in` (infix) operator. It's parsed in its
-// own special way, so there is no infix variant defined here.
+// Member represents the `in` (infix) operator.
 var Member = &Builtin{
 	Name:  "member",
 	Infix: "in",
 	Decl: types.NewFunction(
 		types.Args(
+			types.A,
+			types.NewAny(
+				types.NewSet(types.A),
+				types.NewArray(nil, types.A),
+				types.NewObject(nil, types.NewDynamicProperty(types.A, types.A)),
+			),
+		),
+		types.B,
+	),
+}
+
+// MemberWithKey represents the `in` (infix) operator when used
+// with two terms on the lhs, i.e., `k, v in obj`.
+var MemberWithKey = &Builtin{
+	Name:  "member/3",
+	Infix: "in",
+	Decl: types.NewFunction(
+		types.Args(
+			types.A,
 			types.A,
 			types.NewAny(
 				types.NewSet(types.A),
