@@ -1576,6 +1576,9 @@ p[x] = y {
 ```live:eg/member4:output
 ```
 
+When using two operands, the value in key position (`x` in `some x, y in xs`) can only be
+a variable, or a ground value.
+
 #### Comparison `==`
 
 Comparison checks if two values are equal within a rule.  If the left or right hand side contains a variable that has not been assigned a value, the compiler throws an error.
