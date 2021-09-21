@@ -449,7 +449,7 @@ func (p *Parser) parseElse(head *Head) *Rule {
 		rule.Head.Value = BooleanTerm(true)
 	case tokens.Unify:
 		p.scan()
-		rule.Head.Value = p.parseTermRelation()
+		rule.Head.Value = p.parseTermInfixCall()
 		if rule.Head.Value == nil {
 			return nil
 		}
@@ -518,7 +518,7 @@ func (p *Parser) parseHead(defaultRule bool) *Head {
 
 	if p.s.tok == tokens.LBrack {
 		p.scan()
-		head.Key = p.parseTermRelation()
+		head.Key = p.parseTermInfixCall()
 		if head.Key == nil {
 			p.illegal("expected rule key term (e.g., %s[<VALUE>] { ... })", head.Name)
 		}
@@ -530,7 +530,7 @@ func (p *Parser) parseHead(defaultRule bool) *Head {
 
 	if p.s.tok == tokens.Unify {
 		p.scan()
-		head.Value = p.parseTermRelation()
+		head.Value = p.parseTermInfixCall()
 		if head.Value == nil {
 			p.illegal("expected rule value term (e.g., %s[<VALUE>] { ... })", head.Name)
 		}
@@ -549,7 +549,7 @@ func (p *Parser) parseHead(defaultRule bool) *Head {
 
 		p.scan()
 		head.Assign = true
-		head.Value = p.parseTermRelation()
+		head.Value = p.parseTermInfixCall()
 		if head.Value == nil {
 			p.illegal("expected rule value term (e.g., %s := <VALUE> { ... })", head.Name)
 		}
@@ -671,7 +671,7 @@ func (p *Parser) parseWith() []*With {
 
 		p.scan()
 
-		if with.Value = p.parseTermRelation(); with.Value == nil {
+		if with.Value = p.parseTermInfixCall(); with.Value == nil {
 			return nil
 		}
 
@@ -696,20 +696,8 @@ func (p *Parser) parseSome() *Expr {
 	//   SomeDecl{Symbols: "member(x, xs)"}
 	s := p.save()
 	p.scan()
-	if terms := p.parseTermList(tokens.In, nil); terms != nil {
-		call := ([]*Term{
-			RefTerm(VarTerm(Member.Name).SetLocation(decl.Location)).SetLocation(decl.Location),
-		})
-		call = append(call, terms...)
-		p.scan() // step over "in"
-
-		container := p.parseTermRelation()
-		if container == nil {
-			return nil // TODO: ?
-		}
-		call = append(call, container)
-		decl.Symbols = []*Term{CallTerm(call...)}
-
+	if call := p.parseTermInfixCall(); call != nil {
+		decl.Symbols = []*Term{call}
 		return NewExpr(decl).SetLocation(decl.Location)
 	}
 	p.restore(s)
@@ -741,14 +729,13 @@ func (p *Parser) parseSome() *Expr {
 
 func (p *Parser) parseExpr() *Expr {
 
-	lhs := p.parseTermRelation()
-
+	lhs := p.parseTermInfixCall()
 	if lhs == nil {
 		return nil
 	}
 
 	if op := p.parseTermOp(tokens.Assign, tokens.Unify); op != nil {
-		if rhs := p.parseTermRelation(); rhs != nil {
+		if rhs := p.parseTermInfixCall(); rhs != nil {
 			return NewExpr([]*Term{op, lhs, rhs})
 		}
 		return nil
@@ -764,14 +751,36 @@ func (p *Parser) parseExpr() *Expr {
 	return NewExpr(lhs)
 }
 
-// parseTermRelation consumes the next term from the input and returns it. If a
+// parseTermInfixCall consumes the next term from the input and returns it. If a
 // term cannot be parsed the return value is nil and error will be recorded. The
 // scanner will be advanced to the next token before returning.
-func (p *Parser) parseTermRelation() *Term {
-	return p.parseTermRelationRec(nil, p.s.loc.Offset)
+// By starting out with infix relations (==, !=, <, etc) and further calling the
+// other binary operators (|, &, arithmetics), it constitutes the binding
+func (p *Parser) parseTermInfixCall() *Term {
+	return p.parseTermIn(nil, p.s.loc.Offset)
 }
 
-func (p *Parser) parseTermRelationRec(lhs *Term, offset int) *Term {
+func (p *Parser) parseTermIn(lhs *Term, offset int) *Term {
+	if lhs == nil {
+		lhs = p.parseTermRelation(nil, offset)
+	}
+	if lhs != nil {
+		if op := p.parseTermOpName(Member.Name, tokens.In); op != nil {
+			if rhs := p.parseTermRelation(nil, p.s.loc.Offset); rhs != nil {
+				call := p.setLoc(CallTerm(op, lhs, rhs), lhs.Location, offset, p.s.lastEnd)
+				switch p.s.tok {
+				case tokens.In:
+					return p.parseTermIn(call, offset)
+				default:
+					return call
+				}
+			}
+		}
+	}
+	return lhs
+}
+
+func (p *Parser) parseTermRelation(lhs *Term, offset int) *Term {
 	if lhs == nil {
 		lhs = p.parseTermOr(nil, offset)
 	}
@@ -781,7 +790,7 @@ func (p *Parser) parseTermRelationRec(lhs *Term, offset int) *Term {
 				call := p.setLoc(CallTerm(op, lhs, rhs), lhs.Location, offset, p.s.lastEnd)
 				switch p.s.tok {
 				case tokens.Equal, tokens.Neq, tokens.Lt, tokens.Gt, tokens.Lte, tokens.Gte:
-					return p.parseTermRelationRec(call, offset)
+					return p.parseTermRelation(call, offset)
 				default:
 					return call
 				}
@@ -895,7 +904,7 @@ func (p *Parser) parseTerm() *Term {
 	case tokens.LParen:
 		offset := p.s.loc.Offset
 		p.scan()
-		if r := p.parseTermRelation(); r != nil {
+		if r := p.parseTermInfixCall(); r != nil {
 			if p.s.tok == tokens.RParen {
 				r.Location.Text = p.s.Text(offset, p.s.tokEnd)
 				term = r
@@ -1087,7 +1096,7 @@ func (p *Parser) parseRef(head *Term, offset int) (term *Term) {
 			return term
 		case tokens.LBrack:
 			p.scan()
-			if term := p.parseTermRelation(); term != nil {
+			if term := p.parseTermInfixCall(); term != nil {
 				if p.s.tok != tokens.RBrack {
 					p.illegal("expected %v", tokens.LBrack)
 					return nil
@@ -1230,7 +1239,7 @@ func (p *Parser) parseSetOrObject() (term *Term) {
 
 	p.restore(s)
 
-	if head = p.parseTermRelation(); head == nil {
+	if head = p.parseTermInfixCall(); head == nil {
 		return nil
 	}
 
@@ -1302,7 +1311,7 @@ func (p *Parser) parseObject(k *Term, potentialComprehension bool) *Term {
 
 	p.restore(s)
 
-	if v = p.parseTermRelation(); v == nil {
+	if v = p.parseTermInfixCall(); v == nil {
 		return nil
 	}
 
@@ -1343,7 +1352,7 @@ func (p *Parser) parseTermList(end tokens.Token, r []*Term) []*Term {
 		return r
 	}
 	for {
-		term := p.parseTermRelation()
+		term := p.parseTermInfixCall()
 		if term != nil {
 			r = append(r, term)
 			switch p.s.tok {
@@ -1369,12 +1378,12 @@ func (p *Parser) parseTermPairList(end tokens.Token, r [][2]*Term) [][2]*Term {
 		return r
 	}
 	for {
-		key := p.parseTermRelation()
+		key := p.parseTermInfixCall()
 		if key != nil {
 			switch p.s.tok {
 			case tokens.Colon:
 				p.scan()
-				if val := p.parseTermRelation(); val != nil {
+				if val := p.parseTermInfixCall(); val != nil {
 					r = append(r, [2]*Term{key, val})
 					switch p.s.tok {
 					case end:
