@@ -3692,13 +3692,43 @@ func rewriteSomeDeclStatement(g *localVarGenerator, stack *localDeclaredVars, de
 			if _, err := rewriteDeclaredVar(g, stack, v, declaredVar); err != nil {
 				return nil, append(errs, NewError(CompileErr, decl.Loc(), err.Error()))
 			}
-		case Call: // "some x in xs" declares "x" (via `member(x, xs)`)
-			if !v[1].Value.IsGround() {
+		case Call:
+			switch len(v) {
+			case 3:
+				if !v[1].Value.IsGround() { // "some x in xs" declares "x" (via `member(x, xs)`)
+					e := expr.Copy()
+					e.Terms = []*Term{
+						RefTerm(VarTerm(Assign.Name)),
+						v[1].Copy(),
+						RefTerm(v[2].Copy(), NewTerm(g.Generate())),
+					}
+					return rewriteDeclaredAssignment(g, stack, e, errs)
+				}
+			case 4: // member/3
+				key, val := v[1], v[2]
 				e := expr.Copy()
-				e.Terms = []*Term{
-					RefTerm(VarTerm(Assign.Name)),
-					v[1].Copy(),
-					RefTerm(v[2].Copy(), NewTerm(g.Generate())),
+				if val.Value.IsGround() { // `some k, "v" in xs` ~> `xs[k0] = v` with fresh `k0`
+					if kv, ok := key.Value.(Var); ok {
+						gv, err := rewriteDeclaredVar(g, stack, kv, declaredVar)
+						if err != nil {
+							return nil, append(errs, NewError(CompileErr, decl.Loc(), err.Error()))
+						}
+						e.Terms = []*Term{
+							RefTerm(VarTerm(Equality.Name)),
+							val.Copy(),
+							RefTerm(v[3].Copy(), NewTerm(gv)),
+						}
+						return e, errs
+					}
+					if !key.Value.IsGround() { // unsupported
+						return nil, append(errs, NewError(CompileErr, decl.Loc(), "only var keys may be non-ground"))
+					}
+				} else { // val non-ground, rewrite to `v := xs[k]`, regardless of ground-ness of key
+					e.Terms = []*Term{
+						RefTerm(VarTerm(Assign.Name)),
+						val.Copy(),
+						RefTerm(v[3].Copy(), key.Copy()),
+					}
 				}
 				return rewriteDeclaredAssignment(g, stack, e, errs)
 			}

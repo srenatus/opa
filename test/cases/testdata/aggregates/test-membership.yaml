@@ -259,7 +259,7 @@ cases:
     package test
 
     p = x {
-      some {"foo": x, "what": y} in [{"foo": 100, "what":"ever"}]
+      some {"foo": x, "what": y} in [{"foo": 100, "what": "ever"}]
     }
   note: aggregates/member+some non-ground composite containee, multiple bindings
   query: data.test.p = x
@@ -288,3 +288,41 @@ cases:
   note: aggregates/member+some ground composite containee (false)
   query: data.test.p = x
   want_result: []
+- data:
+  modules:
+  - |
+    package test
+
+    p = x {
+      some "foo", x in {"foo": 100, "what": "ever"}
+    }
+  note: aggregates/member+some+key non-ground value
+  query: data.test.p = x
+  want_result:
+  - x: 100
+- data:
+  modules:
+  - |
+    package test
+
+    p = x {
+      some x, "ever" in {"foo": 100, "what": "ever"}
+    }
+  note: aggregates/member+some+key non-ground key
+  query: data.test.p = x
+  want_result:
+  - x: what
+- data:
+  modules:
+  - |
+    package test
+
+    p[k] = v {
+      some k, v in {"foo": 100, "what": "ever"}
+    }
+  note: aggregates/member+some+key non-ground key+value
+  query: data.test.p = x
+  want_result:
+  - x:
+      foo: 100
+      what: ever
