@@ -696,9 +696,11 @@ func (p *Parser) parseSome() *Expr {
 	//   SomeDecl{Symbols: "member(x, xs)"}
 	s := p.save()
 	p.scan()
-	if call := p.parseTermInfixCall(); call != nil {
-		decl.Symbols = []*Term{call}
-		return NewExpr(decl).SetLocation(decl.Location)
+	if terms := p.parseTermInfixCall(); terms != nil {
+		if _, ok := terms.Value.(Call); ok {
+			decl.Symbols = []*Term{terms}
+			return NewExpr(decl).SetLocation(decl.Location)
+		}
 	}
 	p.restore(s)
 
