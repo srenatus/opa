@@ -3644,8 +3644,8 @@ func rewriteDeclaredVarsInBody(g *localVarGenerator, stack *localDeclaredVars, u
 		var expr *Expr
 		if body[i].IsAssignment() {
 			expr, errs = rewriteDeclaredAssignment(g, stack, body[i], errs)
-		} else if decl, ok := body[i].Terms.(*SomeDecl); ok {
-			expr, errs = rewriteSomeDeclStatement(g, stack, decl, body[i], errs)
+		} else if _, ok := body[i].Terms.(*SomeDecl); ok {
+			expr, errs = rewriteSomeDeclStatement(g, stack, body[i], errs)
 		} else {
 			expr, errs = rewriteDeclaredVarsInExpr(g, stack, body[i], errs)
 		}
@@ -3700,7 +3700,9 @@ func checkUnusedDeclaredVars(loc *Location, stack *localDeclaredVars, used VarSe
 	return errs
 }
 
-func rewriteSomeDeclStatement(g *localVarGenerator, stack *localDeclaredVars, decl *SomeDecl, expr *Expr, errs Errors) (*Expr, Errors) {
+func rewriteSomeDeclStatement(g *localVarGenerator, stack *localDeclaredVars, expr *Expr, errs Errors) (*Expr, Errors) {
+	e := expr.Copy()
+	decl := e.Terms.(*SomeDecl)
 	for i := range decl.Symbols {
 		switch v := decl.Symbols[i].Value.(type) {
 		case Var:
@@ -3711,17 +3713,15 @@ func rewriteSomeDeclStatement(g *localVarGenerator, stack *localDeclaredVars, de
 			switch len(v) {
 			case 3:
 				if !v[1].Value.IsGround() { // "some x in xs" declares "x" (via `member(x, xs)`)
-					e := expr.Copy()
 					e.Terms = []*Term{
 						RefTerm(VarTerm(Assign.Name)),
-						v[1].Copy(),
-						RefTerm(v[2].Copy(), NewTerm(g.Generate())),
+						v[1],
+						RefTerm(v[2], NewTerm(g.Generate())),
 					}
 					return rewriteDeclaredAssignment(g, stack, e, errs)
 				}
 			case 4: // member3
 				key, val := v[1], v[2]
-				e := expr.Copy()
 				if val.Value.IsGround() { // `some k, "v" in xs` ~> `xs[k0] = v` with fresh `k0`
 					if kv, ok := key.Value.(Var); ok {
 						gv, err := rewriteDeclaredVar(g, stack, kv, declaredVar)
@@ -3730,8 +3730,8 @@ func rewriteSomeDeclStatement(g *localVarGenerator, stack *localDeclaredVars, de
 						}
 						e.Terms = []*Term{
 							RefTerm(VarTerm(Equality.Name)),
-							val.Copy(),
-							RefTerm(v[3].Copy(), NewTerm(gv)),
+							val,
+							RefTerm(v[3], NewTerm(gv)),
 						}
 						return e, errs
 					}
@@ -3741,8 +3741,8 @@ func rewriteSomeDeclStatement(g *localVarGenerator, stack *localDeclaredVars, de
 				} else { // val non-ground, rewrite to `v := xs[k]`, regardless of ground-ness of key
 					e.Terms = []*Term{
 						RefTerm(VarTerm(Assign.Name)),
-						val.Copy(),
-						RefTerm(v[3].Copy(), key.Copy()),
+						val,
+						RefTerm(v[3], key),
 					}
 				}
 				return rewriteDeclaredAssignment(g, stack, e, errs)
@@ -3752,7 +3752,6 @@ func rewriteSomeDeclStatement(g *localVarGenerator, stack *localDeclaredVars, de
 			//     some "foo" in ["foo", "bar"]
 			// becomes
 			//     "foo" in ["foo", "bar"]
-			e := expr.Copy()
 			e.Terms = []*Term(v)
 			return e, errs
 		}
