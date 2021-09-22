@@ -540,7 +540,21 @@ func TestSomeDeclString(t *testing.T) {
 	expected := "some a, b"
 
 	if result != expected {
-		t.Fatalf("Expected %v but got %v", expected, result)
+		t.Errorf("Expected %v but got %v", expected, result)
+	}
+
+	s := &SomeDecl{
+		Symbols: []*Term{Member.Call(VarTerm("x"), VarTerm("xs"))},
+	}
+	if exp, act := "some x in xs", s.String(); act != exp {
+		t.Errorf("Expected %v but got %v", exp, act)
+	}
+
+	s1 := &SomeDecl{
+		Symbols: []*Term{Member.Call(VarTerm("x"), VarTerm("y"), VarTerm("xs"))},
+	}
+	if exp, act := "some x, y in xs", s1.String(); act != exp {
+		t.Errorf("Expected %v but got %v", exp, act)
 	}
 }
 

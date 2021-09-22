@@ -2981,6 +2981,10 @@ func resolveRefsInExpr(globals map[Var]Ref, ignore *declaredVarStack, expr *Expr
 			buf[i] = resolveRefsInTerm(globals, ignore, ts[i])
 		}
 		cpy.Terms = buf
+	case *SomeDecl:
+		if val, ok := ts.Symbols[0].Value.(Call); ok {
+			cpy.Terms = &SomeDecl{Symbols: []*Term{CallTerm(resolveRefsInTermSlice(globals, ignore, val)...)}}
+		}
 	}
 	for _, w := range cpy.With {
 		w.Target = resolveRefsInTerm(globals, ignore, w.Target)
@@ -3117,19 +3121,18 @@ func declaredVars(x interface{}) VarSet {
 					case Var:
 						vars.Add(val)
 					case Call:
-						switch len(val) {
-						case 4: // some x, y in xs
-							WalkVars(val[2], func(v Var) bool {
-								vars.Add(v)
-								return false
-							})
-							fallthrough // also walk operand 0
-						case 3: // some x in xs
-							WalkVars(val[1], func(v Var) bool {
+						args := val[1:]
+						if len(args) == 3 { // some x, y in xs
+							WalkVars(args[1], func(v Var) bool {
 								vars.Add(v)
 								return false
 							})
 						}
+						// some x in xs
+						WalkVars(args[0], func(v Var) bool {
+							vars.Add(v)
+							return false
+						})
 					}
 				}
 			}

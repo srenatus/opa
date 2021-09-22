@@ -1467,6 +1467,24 @@ p[foo[bar[i]]] = {"baz": baz} { true }`)
 			[true | x := y]
 		}`)
 
+	c.Modules["someinassign"] = MustParseModule(`package someinassign
+
+		x = 1
+		y = 1
+
+		p[x] {
+			some x in [1, 2, y]
+		}`)
+
+	c.Modules["someinassignwithkey"] = MustParseModule(`package someinassignwithkey
+
+		x = 1
+		y = 1
+
+		p[x] {
+			some k, v in [1, 2, y]
+		}`)
+
 	c.Modules["donotresolve"] = MustParseModule(`package donotresolve
 
 		x = 1
@@ -1611,6 +1629,21 @@ p[foo[bar[i]]] = {"baz": baz} { true }`)
 	mod13 := c.Modules["comprehensions"]
 	assertExprEqual(t, mod13.Rules[3].Body[0].Terms.(*Term).Value.(Ref)[3].Value.(*ArrayComprehension).Body[0], MustParseExpr("x = data.comprehensions.nums[_]"))
 	assertExprEqual(t, mod13.Rules[4].Head.Value.Value.(*ArrayComprehension).Body[0], MustParseExpr("y = data.comprehensions.f(1)[0]"))
+
+	// Ignore vars assigned via `some x in xs`.
+	mod14 := c.Modules["someinassign"]
+	someInAssignCall := mod14.Rules[2].Body[0].Terms.(*SomeDecl).Symbols[0].Value.(Call)
+	assertTermEqual(t, someInAssignCall[1], VarTerm("x"))
+	collectionLastElem := someInAssignCall[2].Value.(*Array).Get(IntNumberTerm(2))
+	assertTermEqual(t, collectionLastElem, MustParseTerm("data.someinassign.y"))
+
+	// Ignore key and val vars assigned via `some k, v in xs`.
+	mod15 := c.Modules["someinassignwithkey"]
+	someInAssignCall = mod15.Rules[2].Body[0].Terms.(*SomeDecl).Symbols[0].Value.(Call)
+	assertTermEqual(t, someInAssignCall[1], VarTerm("k"))
+	assertTermEqual(t, someInAssignCall[2], VarTerm("v"))
+	collectionLastElem = someInAssignCall[3].Value.(*Array).Get(IntNumberTerm(2))
+	assertTermEqual(t, collectionLastElem, MustParseTerm("data.someinassignwithkey.y"))
 }
 
 func TestCompilerResolveErrors(t *testing.T) {

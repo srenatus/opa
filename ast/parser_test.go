@@ -669,7 +669,7 @@ func TestSomeDeclExpr(t *testing.T) {
 	assertParseOneExpr(t, "member", "some x in xs", &Expr{
 		Terms: &SomeDecl{
 			Symbols: []*Term{
-				CallTerm(RefTerm(VarTerm(Member.Name)),
+				Member.Call(
 					VarTerm("x"),
 					VarTerm("xs"),
 				),
@@ -680,7 +680,7 @@ func TestSomeDeclExpr(t *testing.T) {
 	assertParseOneExpr(t, "member3", "some x, y in xs", &Expr{
 		Terms: &SomeDecl{
 			Symbols: []*Term{
-				CallTerm(RefTerm(VarTerm(MemberWithKey.Name)),
+				MemberWithKey.Call(
 					VarTerm("x"),
 					VarTerm("y"),
 					VarTerm("xs"),

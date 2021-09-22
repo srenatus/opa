@@ -1367,6 +1367,12 @@ func NewBuiltinExpr(terms ...*Term) *Expr {
 }
 
 func (d *SomeDecl) String() string {
+	if call, ok := d.Symbols[0].Value.(Call); ok {
+		if len(call) == 4 {
+			return "some " + call[1].String() + ", " + call[2].String() + " in " + call[3].String()
+		}
+		return "some " + call[1].String() + " in " + call[2].String()
+	}
 	buf := make([]string, len(d.Symbols))
 	for i := range buf {
 		buf[i] = d.Symbols[i].String()

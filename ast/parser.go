@@ -693,12 +693,12 @@ func (p *Parser) parseSome() *Expr {
 	decl.SetLoc(p.s.Loc())
 
 	// Attempt to parse "some x in xs", which will end up in
-	//   SomeDecl{Symbols: "member(x, xs)"}
+	//   SomeDecl{Symbols: ["member(x, xs)"]}
 	s := p.save()
 	p.scan()
-	if terms := p.parseTermInfixCall(); terms != nil {
-		if _, ok := terms.Value.(Call); ok {
-			decl.Symbols = []*Term{terms}
+	if term := p.parseTermInfixCall(); term != nil {
+		if _, ok := term.Value.(Call); ok {
+			decl.Symbols = []*Term{term}
 			return NewExpr(decl).SetLocation(decl.Location)
 		}
 	}
