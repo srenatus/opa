@@ -1812,7 +1812,7 @@
       "infix": "in"
     },
     {
-      "name": "member/3",
+      "name": "member3",
       "decl": {
         "args": [
           {

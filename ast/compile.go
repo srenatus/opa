@@ -3716,7 +3716,7 @@ func rewriteSomeDeclStatement(g *localVarGenerator, stack *localDeclaredVars, de
 					}
 					return rewriteDeclaredAssignment(g, stack, e, errs)
 				}
-			case 4: // member/3
+			case 4: // member3
 				key, val := v[1], v[2]
 				e := expr.Copy()
 				if val.Value.IsGround() { // `some k, "v" in xs` ~> `xs[k0] = v` with fresh `k0`

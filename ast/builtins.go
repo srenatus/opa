@@ -315,7 +315,7 @@ var Member = &Builtin{
 // MemberWithKey represents the `in` (infix) operator when used
 // with two terms on the lhs, i.e., `k, v in obj`.
 var MemberWithKey = &Builtin{
-	Name:  "member/3",
+	Name:  "member3",
 	Infix: "in",
 	Decl: types.NewFunction(
 		types.Args(

@@ -476,7 +476,7 @@ func TestCalls(t *testing.T) {
 		[]*Term{RefTerm(VarTerm("foo"))}))
 
 	assertParseOneExpr(t, "member", "x in xs", Member.Expr(VarTerm("x"), VarTerm("xs")))
-	assertParseOneExpr(t, "member/3", "x, y in xs", MemberWithKey.Expr(VarTerm("x"), VarTerm("y"), VarTerm("xs")))
+	assertParseOneExpr(t, "member3", "x, y in xs", MemberWithKey.Expr(VarTerm("x"), VarTerm("y"), VarTerm("xs")))
 }
 
 func TestInfixExpr(t *testing.T) {
@@ -677,7 +677,7 @@ func TestSomeDeclExpr(t *testing.T) {
 		},
 	})
 
-	assertParseOneExpr(t, "member/3", "some x, y in xs", &Expr{
+	assertParseOneExpr(t, "member3", "some x, y in xs", &Expr{
 		Terms: &SomeDecl{
 			Symbols: []*Term{
 				CallTerm(RefTerm(VarTerm(MemberWithKey.Name)),
