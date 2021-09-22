@@ -3733,7 +3733,7 @@ func rewriteSomeDeclStatement(g *localVarGenerator, stack *localDeclaredVars, de
 						return e, errs
 					}
 					if !key.Value.IsGround() { // unsupported
-						return nil, append(errs, NewError(CompileErr, decl.Loc(), "only var keys may be non-ground"))
+						return nil, append(errs, NewError(CompileErr, decl.Loc(), "key argument must be either a variable, or a constant expression"))
 					}
 				} else { // val non-ground, rewrite to `v := xs[k]`, regardless of ground-ness of key
 					e.Terms = []*Term{
