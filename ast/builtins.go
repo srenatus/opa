@@ -302,11 +302,7 @@ var Member = &Builtin{
 	Decl: types.NewFunction(
 		types.Args(
 			types.A,
-			types.NewAny(
-				types.NewSet(types.A),
-				types.NewArray(nil, types.A),
-				types.NewObject(nil, types.NewDynamicProperty(types.A, types.A)),
-			),
+			types.A,
 		),
 		types.B,
 	),
@@ -321,11 +317,7 @@ var MemberWithKey = &Builtin{
 		types.Args(
 			types.A,
 			types.A,
-			types.NewAny(
-				types.NewSet(types.A),
-				types.NewArray(nil, types.A),
-				types.NewObject(nil, types.NewDynamicProperty(types.A, types.A)),
-			),
+			types.A,
 		),
 		types.B,
 	),

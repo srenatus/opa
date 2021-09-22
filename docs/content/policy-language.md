@@ -1531,6 +1531,17 @@ p = [x, y, z] {
 ```live:eg/member1:output
 ```
 
+**Note** that expressions using the `in` operator _always return `true` or `false`_, even
+when called in non-collection arguments:
+
+```live:eg/member11:module:merge_down
+p = x {
+    x := 3 in [1, 2, 4]
+}
+```
+```live:eg/member11:output
+```
+
 Using the `some` variant, it can be used to introduce new variables based on a collections' items:
 
 ```live:eg/member2:module:merge_down

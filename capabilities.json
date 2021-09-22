@@ -1776,31 +1776,6 @@
             "type": "any"
           },
           {
-            "of": [
-              {
-                "dynamic": {
-                  "type": "any"
-                },
-                "type": "array"
-              },
-              {
-                "dynamic": {
-                  "key": {
-                    "type": "any"
-                  },
-                  "value": {
-                    "type": "any"
-                  }
-                },
-                "type": "object"
-              },
-              {
-                "of": {
-                  "type": "any"
-                },
-                "type": "set"
-              }
-            ],
             "type": "any"
           }
         ],
@@ -1822,31 +1797,6 @@
             "type": "any"
           },
           {
-            "of": [
-              {
-                "dynamic": {
-                  "type": "any"
-                },
-                "type": "array"
-              },
-              {
-                "dynamic": {
-                  "key": {
-                    "type": "any"
-                  },
-                  "value": {
-                    "type": "any"
-                  }
-                },
-                "type": "object"
-              },
-              {
-                "of": {
-                  "type": "any"
-                },
-                "type": "set"
-              }
-            ],
             "type": "any"
           }
         ],

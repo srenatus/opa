@@ -210,6 +210,42 @@ cases:
   - |
     package test
 
+    p = x {
+      x := 1 in "foo"
+    }
+  note: aggregates/member non-collection string
+  query: data.test.p = x
+  want_result:
+  - x: false
+- data:
+  modules:
+  - |
+    package test
+
+    p = x {
+      x := "foo" in 1
+    }
+  note: aggregates/member non-collection number
+  query: data.test.p = x
+  want_result:
+  - x: false
+- data:
+  modules:
+  - |
+    package test
+
+    p = x {
+      x := 1, "foo" in 1
+    }
+  note: aggregates/member with key in non-collection (number)
+  query: data.test.p = x
+  want_result:
+  - x: false
+- data:
+  modules:
+  - |
+    package test
+
     p[x] {
       some x in [1,2,3]
     }

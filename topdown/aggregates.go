@@ -230,7 +230,7 @@ func builtinMember(_ BuiltinContext, args []*ast.Term, iter func(*ast.Term) erro
 		})
 		return iter(ast.BooleanTerm(ret))
 	}
-	return nil
+	return iter(ast.BooleanTerm(false))
 }
 
 func builtinMemberWithKey(_ BuiltinContext, args []*ast.Term, iter func(*ast.Term) error) error {
@@ -243,7 +243,7 @@ func builtinMemberWithKey(_ BuiltinContext, args []*ast.Term, iter func(*ast.Ter
 		}
 		return iter(ast.BooleanTerm(ret))
 	}
-	return nil
+	return iter(ast.BooleanTerm(false))
 }
 
 func init() {
