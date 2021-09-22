@@ -3710,50 +3710,45 @@ func rewriteSomeDeclStatement(g *localVarGenerator, stack *localDeclaredVars, ex
 				return nil, append(errs, NewError(CompileErr, decl.Loc(), err.Error()))
 			}
 		case Call:
-			switch len(v) {
-			case 3:
-				if !v[1].Value.IsGround() { // "some x in xs" declares "x" (via `member(x, xs)`)
-					e.Terms = []*Term{
-						RefTerm(VarTerm(Assign.Name)),
-						v[1],
-						RefTerm(v[2], NewTerm(g.Generate())),
-					}
-					return rewriteDeclaredAssignment(g, stack, e, errs)
-				}
-			case 4: // member3
+			if len(v) == 4 { // member3
 				key, val := v[1], v[2]
-				if val.Value.IsGround() { // `some k, "v" in xs` ~> `xs[k0] = v` with fresh `k0`
-					if kv, ok := key.Value.(Var); ok {
-						gv, err := rewriteDeclaredVar(g, stack, kv, declaredVar)
-						if err != nil {
-							return nil, append(errs, NewError(CompileErr, decl.Loc(), err.Error()))
-						}
-						e.Terms = []*Term{
-							RefTerm(VarTerm(Equality.Name)),
-							val,
-							RefTerm(v[3], NewTerm(gv)),
-						}
-						return e, errs
-					}
-					if !key.Value.IsGround() { // unsupported
-						return nil, append(errs, NewError(CompileErr, decl.Loc(), "key argument must be either a variable, or a constant expression"))
-					}
-				} else { // val non-ground, rewrite to `v := xs[k]`, regardless of ground-ness of key
-					e.Terms = []*Term{
-						RefTerm(VarTerm(Assign.Name)),
-						val,
-						RefTerm(v[3], key),
+				for v0 := range key.Vars() {
+					if _, err := rewriteDeclaredVar(g, stack, v0, declaredVar); err != nil {
+						return nil, append(errs, NewError(CompileErr, decl.Loc(), err.Error()))
 					}
 				}
-				return rewriteDeclaredAssignment(g, stack, e, errs)
+				for v0 := range val.Vars() {
+					if _, err := rewriteDeclaredVar(g, stack, v0, declaredVar); err != nil {
+						return nil, append(errs, NewError(CompileErr, decl.Loc(), err.Error()))
+					}
+				}
+				e.Terms = []*Term{
+					RefTerm(VarTerm(Equality.Name)),
+					v[2],
+					RefTerm(v[3], v[1]),
+				}
+				return rewriteDeclaredVarsInExpr(g, stack, e, errs)
 			}
+
+			// "some x in xs" declares "x" (via `member(x, xs)`)
+			for v0 := range v[1].Vars() {
+				if _, err := rewriteDeclaredVar(g, stack, v0, declaredVar); err != nil {
+					return nil, append(errs, NewError(CompileErr, decl.Loc(), err.Error()))
+				}
+			}
+			e.Terms = []*Term{
+				RefTerm(VarTerm(Equality.Name)),
+				v[1],
+				RefTerm(v[2], NewTerm(g.Generate())),
+			}
+			return rewriteDeclaredVarsInExpr(g, stack, e, errs)
 
 			// If it's ground, we merely remove the "some" wrapping, so
 			//     some "foo" in ["foo", "bar"]
 			// becomes
 			//     "foo" in ["foo", "bar"]
-			e.Terms = []*Term(v)
-			return e, errs
+			// e.Terms = []*Term(v)
+			// return e, errs
 		}
 	}
 	return nil, errs
