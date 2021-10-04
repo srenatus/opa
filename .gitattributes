@@ -1,0 +1,4 @@
+# treat these as binary: display "x and y differ", suppress diff
+internal/compiler/wasm/opa/opa.* -diff
+# highlight .rego.formatted files like rego (github)
+*.rego.formatted linguist-language=rego
