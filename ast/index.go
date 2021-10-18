@@ -32,10 +32,11 @@ type RuleIndex interface {
 
 // IndexResult contains the result of an index lookup.
 type IndexResult struct {
-	Kind    DocKind
-	Rules   []*Rule
-	Else    map[*Rule][]*Rule
-	Default *Rule
+	Kind      DocKind
+	Rules     []*Rule
+	Else      map[*Rule][]*Rule
+	Default   *Rule
+	EarlyExit bool
 }
 
 // NewIndexResult returns a new IndexResult object.
@@ -141,6 +142,7 @@ func (i *baseDocEqIndex) Lookup(resolver ValueResolver) (*IndexResult, error) {
 		}
 	}
 
+	result.EarlyExit = earlyExit(result.Rules)
 	return result, nil
 }
 
@@ -846,4 +848,29 @@ func stringSliceToArray(s []string) *Array {
 		arr[i] = StringTerm(v)
 	}
 	return NewArray(arr...)
+}
+
+func earlyExit(rules []*Rule) bool {
+	if len(rules) < 2 {
+		return false // don't bother exiting early if there's nothing to win
+	}
+	switch rules[0].Head.DocKind() {
+	case CompleteDoc:
+		val := rules[0].Head.Value
+		if !val.Value.IsGround() {
+			return false
+		}
+		for i := 1; i < len(rules); i++ {
+			other := rules[i].Head.Value
+			if !other.Value.IsGround() {
+				return false
+			}
+			if !other.Equal(val) {
+				return false
+			}
+		}
+		return true
+	case PartialSetDoc, PartialObjectDoc: // TODO
+	}
+	return false
 }

@@ -866,3 +866,212 @@ func TestGetAllRules(t *testing.T) {
 		t.Fatalf("Expected else to be %v but got: %v", result.Else[r1], expectedElse[r1])
 	}
 }
+
+func TestBaseDocIndexResultEarlyExit(t *testing.T) {
+
+	tests := []struct {
+		note       string
+		module     *Module
+		input      string
+		unknowns   []string
+		args       []Value
+		expectedRS interface{}
+		expectedDR *Rule
+		expectedEE bool
+	}{
+		{
+			note:       "no early exit: single rule",
+			expectedEE: false,
+			module: MustParseModule(`package test
+r {
+	input.x = 1
+}
+r = 3 {
+	input.y = 2
+}`),
+			input: `{"x": 1}`,
+			expectedRS: []string{
+				`r { input.x = 1 }`,
+			},
+		},
+		{
+			note:       "no early exit: different constant value",
+			expectedEE: false,
+			module: MustParseModule(`package test
+r {
+	input.x = 1
+}
+r = 2 {
+	input.x = 1
+	input.y = 2
+}`),
+			input: `{"x": 1, "y": 2}`,
+			expectedRS: []string{
+				`r { input.x = 1 }`,
+				`r = 2 { input.x = 1; input.y = 2 }`,
+			},
+		},
+		{
+			note:       "same constant value",
+			expectedEE: true,
+			module: MustParseModule(`package test
+r {
+	input.x = 1
+}
+r {
+	input.y = 1
+}`),
+			input: `{"x": 1, "y": 1}`,
+		},
+		{
+			note:       "no early exit: one rule with with non-constant value",
+			expectedEE: false,
+			module: MustParseModule(`package test
+r {
+	input.x = 1
+}
+r = x {
+	input.y = 1
+	x = "foo"
+}`),
+			input: `{"x": 1, "y": 1}`,
+			expectedRS: []string{
+				`r { input.x = 1 }`,
+				`r = x { input.y = 1; x = "foo" }`,
+			},
+		},
+		{
+			note:       "same ref value (input)",
+			expectedEE: true,
+			module: MustParseModule(`package test
+r = input.a {
+	input.x = 1
+}
+r = input.a {
+	input.y = 1
+}`),
+			input: `{"x": 1, "y": 1}`,
+		},
+		{
+			note:       "same ref value (data)",
+			expectedEE: true,
+			module: MustParseModule(`package test
+r = data.a {
+	input.x = 1
+}
+r = data.a {
+	input.y = 1
+}`),
+			input: `{"x": 1, "y": 1}`,
+			expectedRS: []string{
+				`r = data.a { input.x = 1 }`,
+				`r = data.a { input.y = 1 }`,
+			},
+		},
+		// NOTE(sr): The remaining cases record the limitations of the current implementation:
+		// Any matching rules whose values contain non-constant values are not compared, and
+		// cancel early exit.
+		{
+
+			note:       "no early exit: same ref but bound to vars",
+			expectedEE: false,
+			module: MustParseModule(`package test
+r = v {
+	input.x = 1
+	v = input.a
+}
+r = v {
+	input.y = 1
+	v = input.a
+}`),
+			input: `{"x": 1, "y": 1, "a": "a"}`,
+			expectedRS: []string{
+				`r = v { input.x = 1; v = input.a }`,
+				`r = v { input.y = 1; v = input.a }`,
+			},
+		},
+		{
+			note:       "no early exit: same value but with non-ground",
+			expectedEE: false,
+			module: MustParseModule(`package test
+r = [1, {"a": v}] {
+	input.x = 1
+	v = "a"
+}
+r = [1, {"a": v}] {
+	input.y = 1
+	v = "b"
+}`),
+			input: `{"x": 1, "y": 1}`,
+			expectedRS: []string{
+				`r = [1, {"a": v}] { input.y = 1; v = "b" }`,
+				`r = [1, {"a": v}] { input.x = 1; v = "a" }`,
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.note, func(t *testing.T) {
+			rules := []*Rule{}
+			for _, rule := range tc.module.Rules {
+				if rule.Head.Name == Var("r") {
+					rules = append(rules, rule)
+				}
+			}
+
+			var input *Term
+			if tc.input != "" {
+				input = MustParseTerm(tc.input)
+			}
+
+			var expectedRS RuleSet
+
+			switch e := tc.expectedRS.(type) {
+			case []string:
+				for _, r := range e {
+					expectedRS.Add(MustParseRule(r))
+				}
+			case RuleSet:
+				expectedRS = e
+			}
+
+			index := newBaseDocEqIndex(func(Ref) bool {
+				return false
+			})
+
+			if !index.Build(rules) {
+				t.Fatalf("Expected index build to succeed")
+			}
+
+			var unknownRefs Set
+
+			if len(tc.unknowns) > 0 {
+				unknownRefs = NewSet()
+				for _, s := range tc.unknowns {
+					unknownRefs.Add(MustParseTerm(s))
+				}
+			}
+
+			result, err := index.Lookup(testResolver{input: input, unknownRefs: unknownRefs, args: tc.args})
+			if err != nil {
+				t.Fatalf("Unexpected error during index lookup: %v", err)
+			}
+
+			if tc.expectedRS != nil && !NewRuleSet(result.Rules...).Equal(expectedRS) {
+				t.Errorf("Expected ruleset %v but got: %v", expectedRS, result.Rules)
+			}
+
+			if result.Default == nil && tc.expectedDR != nil {
+				t.Errorf("Expected default rule but got nil")
+			} else if result.Default != nil && tc.expectedDR == nil {
+				t.Errorf("Unexpected default rule %v", result.Default)
+			} else if result.Default != nil && tc.expectedDR != nil && !result.Default.Equal(tc.expectedDR) {
+				t.Errorf("Expected default rule %v but got: %v", tc.expectedDR, result.Default)
+			}
+
+			if exp, act := tc.expectedEE, result.EarlyExit; exp != act {
+				t.Errorf("expected 'early-exit' %v, got %v", exp, act)
+			}
+		})
+	}
+}

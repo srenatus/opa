@@ -161,6 +161,10 @@ func (e *eval) traceExit(x ast.Node) {
 	e.traceEvent(ExitOp, x, "", nil)
 }
 
+func (e *eval) traceExitEarly(x ast.Node) {
+	e.traceEvent(ExitOp, x, "early", nil)
+}
+
 func (e *eval) traceEval(x ast.Node) {
 	e.traceEvent(EvalOp, x, "", nil)
 }
@@ -1285,8 +1289,12 @@ func (e *eval) getRules(ref ast.Ref, args []*ast.Term) (*ast.IndexResult, error)
 		var b strings.Builder
 		b.Grow(len("(matched NNNN rules)"))
 		b.WriteString("(matched ")
-		b.WriteString(strconv.FormatInt(int64(len(result.Rules)), 10))
-		b.WriteString(" rules)")
+		b.WriteString(strconv.Itoa(len(result.Rules)))
+		b.WriteString(" rules")
+		if result.EarlyExit && result.Rules[0].Head.DocKind() == ast.CompleteDoc {
+			b.WriteString(", early exit")
+		}
+		b.WriteRune(')')
 		msg = b.String()
 	}
 	e.traceIndex(e.query[e.index], msg, &ref)
@@ -2516,14 +2524,14 @@ func (e evalVirtualComplete) evalValue(iter unifyIterator) error {
 
 	var prev *ast.Term
 
-	for i := range e.ir.Rules {
-		next, err := e.evalValueRule(iter, e.ir.Rules[i], prev)
+	for _, rule := range e.ir.Rules {
+		next, err := e.evalValueRule(iter, rule, prev)
 		if err != nil {
 			return err
 		}
 		if next == nil {
-			for _, rule := range e.ir.Else[e.ir.Rules[i]] {
-				next, err = e.evalValueRule(iter, rule, prev)
+			for _, erule := range e.ir.Else[rule] {
+				next, err = e.evalValueRule(iter, erule, prev)
 				if err != nil {
 					return err
 				}
@@ -2534,6 +2542,11 @@ func (e evalVirtualComplete) evalValue(iter unifyIterator) error {
 		}
 		if next != nil {
 			prev = next
+
+			if e.ir.EarlyExit {
+				e.e.traceExitEarly(rule)
+				break
+			}
 		}
 	}
 
