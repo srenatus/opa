@@ -1642,7 +1642,7 @@ func (e evalFunc) eval(iter unifyIterator) error {
 		if next != nil {
 			prev = next
 
-			if e.ir.EarlyExit {
+			if !e.e.partial() && e.ir.EarlyExit {
 				e.e.traceExitEarly(rule)
 				break
 			}
