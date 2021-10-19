@@ -104,13 +104,11 @@ func (i *baseDocEqIndex) Build(rules []*Rule) bool {
 			// Insert rule into trie with (insertion order, priority order)
 			// tuple. Retaining the insertion order allows us to return rules
 			// in the order they were passed to this function.
-			node.rules = append(node.rules, &ruleNode{[...]int{idx, prio}, rule})
+			node.append([...]int{idx, prio}, rule)
 			prio++
 			return false
 		})
-
 	}
-
 	return true
 }
 
@@ -126,7 +124,6 @@ func (i *baseDocEqIndex) Lookup(resolver ValueResolver) (*IndexResult, error) {
 	result := NewIndexResult(i.kind)
 	result.Default = i.defaultRule
 	result.Rules = make([]*Rule, 0, len(tr.ordering))
-	ee := newEarlyExit(i.kind)
 
 	for _, pos := range tr.ordering {
 		sort.Slice(tr.unordered[pos], func(i, j int) bool {
@@ -134,19 +131,17 @@ func (i *baseDocEqIndex) Lookup(resolver ValueResolver) (*IndexResult, error) {
 		})
 		nodes := tr.unordered[pos]
 		root := nodes[0].rule
-		ee.add(root.Head.Value)
 
 		result.Rules = append(result.Rules, root)
 		if len(nodes) > 1 {
 			result.Else[root] = make([]*Rule, len(nodes)-1)
 			for i := 1; i < len(nodes); i++ {
 				result.Else[root][i-1] = nodes[i].rule
-				ee.add(nodes[i].rule.Head.Value)
 			}
 		}
 	}
 	if len(result.Rules) > 1 {
-		result.EarlyExit = ee.possible()
+		result.EarlyExit = tr.values.Len() == 1 && tr.values.Slice()[0].IsGround()
 	}
 	return result, nil
 }
@@ -186,9 +181,7 @@ type ruleWalker struct {
 
 func (r *ruleWalker) Do(x interface{}) trieWalker {
 	tn := x.(*trieNode)
-	for _, rn := range tn.rules {
-		r.result.Add(rn)
-	}
+	r.result.Add(tn)
 	return r
 }
 
@@ -393,25 +386,33 @@ type trieWalker interface {
 type trieTraversalResult struct {
 	unordered map[int][]*ruleNode
 	ordering  []int
+	values    Set
 }
 
 func newTrieTraversalResult() *trieTraversalResult {
 	return &trieTraversalResult{
 		unordered: map[int][]*ruleNode{},
+		values:    NewSet(),
 	}
 }
 
-func (tr *trieTraversalResult) Add(node *ruleNode) {
-	root := node.prio[0]
-	nodes, ok := tr.unordered[root]
-	if !ok {
-		tr.ordering = append(tr.ordering, root)
+func (tr *trieTraversalResult) Add(t *trieNode) {
+	for _, node := range t.rules {
+		root := node.prio[0]
+		nodes, ok := tr.unordered[root]
+		if !ok {
+			tr.ordering = append(tr.ordering, root)
+		}
+		tr.unordered[root] = append(nodes, node)
 	}
-	tr.unordered[root] = append(nodes, node)
+	if t.values != nil {
+		t.values.Foreach(func(v *Term) { tr.values.Add(v) })
+	}
 }
 
 type trieNode struct {
 	ref       Ref
+	values    Set
 	mappers   []*valueMapper
 	next      *trieNode
 	any       *trieNode
@@ -454,6 +455,19 @@ func (node *trieNode) String() string {
 		flags = append(flags, fmt.Sprintf("%d mapper(s)", len(node.mappers)))
 	}
 	return strings.Join(flags, " ")
+}
+
+func (node *trieNode) append(prio [2]int, rule *Rule) {
+	node.rules = append(node.rules, &ruleNode{prio, rule})
+
+	if node.values != nil {
+		node.values.Add(rule.Head.Value)
+		return
+	}
+
+	if node.values == nil && rule.Head.DocKind() == CompleteDoc {
+		node.values = NewSet(rule.Head.Value)
+	}
 }
 
 type ruleNode struct {
@@ -509,9 +523,7 @@ func (node *trieNode) Traverse(resolver ValueResolver, tr *trieTraversalResult) 
 		return nil
 	}
 
-	for i := range node.rules {
-		tr.Add(node.rules[i])
-	}
+	tr.Add(node)
 
 	return node.next.traverse(resolver, tr)
 }
@@ -853,28 +865,4 @@ func stringSliceToArray(s []string) *Array {
 		arr[i] = StringTerm(v)
 	}
 	return NewArray(arr...)
-}
-
-type earlyExit struct {
-	values Set
-}
-
-func newEarlyExit(kind DocKind) earlyExit {
-	switch kind {
-	case CompleteDoc:
-		return earlyExit{values: NewSet()}
-	}
-	return earlyExit{}
-}
-func (e earlyExit) add(t *Term) {
-	if e.values != nil {
-		e.values.Add(t)
-	}
-}
-
-func (e earlyExit) possible() bool {
-	if e.values != nil {
-		return e.values.Len() == 1 && e.values.Slice()[0].IsGround()
-	}
-	return false
 }
