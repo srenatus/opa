@@ -1623,14 +1623,14 @@ func (e evalFunc) eval(iter unifyIterator) error {
 
 	var prev *ast.Term
 
-	for i := range e.ir.Rules {
-		next, err := e.evalOneRule(iter, e.ir.Rules[i], cacheKey, prev)
+	for _, rule := range e.ir.Rules {
+		next, err := e.evalOneRule(iter, rule, cacheKey, prev)
 		if err != nil {
 			return err
 		}
 		if next == nil {
-			for _, rule := range e.ir.Else[e.ir.Rules[i]] {
-				next, err = e.evalOneRule(iter, rule, cacheKey, prev)
+			for _, erule := range e.ir.Else[rule] {
+				next, err = e.evalOneRule(iter, erule, cacheKey, prev)
 				if err != nil {
 					return err
 				}
@@ -1641,6 +1641,11 @@ func (e evalFunc) eval(iter unifyIterator) error {
 		}
 		if next != nil {
 			prev = next
+
+			if e.ir.EarlyExit {
+				e.e.traceExitEarly(rule)
+				break
+			}
 		}
 	}
 

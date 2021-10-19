@@ -963,11 +963,89 @@ r = data.a {
 	input.y = 1
 }`),
 			input: `{"x": 1, "y": 1}`,
+		},
+		{
+			note:       "function: no early exit: single rule",
+			expectedEE: false,
+			module: MustParseModule(`package test
+r(x) {
+	input.x = x
+}
+r = 3 {
+	input.y = 2
+}`),
+			input: `{"x": 1}`,
 			expectedRS: []string{
-				`r = data.a { input.x = 1 }`,
-				`r = data.a { input.y = 1 }`,
+				`r(x) { input.x = x }`,
 			},
 		},
+		{
+			note:       "function: no early exit: different constant value",
+			expectedEE: false,
+			module: MustParseModule(`package test
+r(x) {
+	input.x = x
+}
+r(y) = 2 {
+	input.x = 1
+	input.y = y
+}`),
+			input: `{"x": 1, "y": 2}`,
+			expectedRS: []string{
+				`r(x) { input.x = x }`,
+				`r(y) = 2 { input.x = 1; input.y = y }`,
+			},
+		},
+		{
+			note:       "function: same constant value",
+			expectedEE: true,
+			module: MustParseModule(`package test
+r(x) {
+	input.x = x
+}
+r(y) {
+	input.y = y
+}`),
+			input: `{"x": 1, "y": 1}`,
+		},
+		{
+			note:       "function: no early exit: one with with non-constant value",
+			expectedEE: false,
+			module: MustParseModule(`package test
+r(x) {
+	input.x = x
+}
+r(y) = x {
+	input.y = y
+	x = "foo"
+}`),
+			input: `{"x": 1, "y": 1}`,
+		},
+		{
+			note:       "function: same ref value (input)",
+			expectedEE: true,
+			module: MustParseModule(`package test
+r(x) = input.a {
+	input.x = x
+}
+r(y) = input.a {
+	input.y = y
+}`),
+			input: `{"x": 1, "y": 1}`,
+		},
+		{
+			note:       "function: same ref value (data)",
+			expectedEE: true,
+			module: MustParseModule(`package test
+r(x) = data.a {
+	input.x = x
+}
+r(y) = data.a {
+	input.y = y
+}`),
+			input: `{"x": 1, "y": 1}`,
+		},
+
 		// NOTE(sr): The remaining cases record the limitations of the current implementation:
 		// Any matching rules whose values contain non-constant values are not compared, and
 		// cancel early exit.
