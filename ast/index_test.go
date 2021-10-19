@@ -965,6 +965,40 @@ r = data.a {
 			input: `{"x": 1, "y": 1}`,
 		},
 		{
+			note:       "else: same constant value",
+			expectedEE: true,
+			module: MustParseModule(`package test
+r {
+	input.x = 1
+}
+else {
+	true
+}
+r {
+	input.y = 1
+}`),
+			input: `{"x": 1, "y": 1}`,
+		},
+		{
+			note:       "else: no early exit: different constant value",
+			expectedEE: false,
+			module: MustParseModule(`package test
+r {
+	input.x = 1
+}
+else = false {
+	true
+}
+r {
+	input.y = 1
+}`),
+			input: `{"x": 1, "y": 1}`,
+			expectedRS: []string{
+				`r = true { input.x = 1 } else = false { true }`,
+				`r = true { input.y = 1 }`,
+			},
+		},
+		{
 			note:       "function: no early exit: single rule",
 			expectedEE: false,
 			module: MustParseModule(`package test

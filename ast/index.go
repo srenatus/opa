@@ -126,6 +126,7 @@ func (i *baseDocEqIndex) Lookup(resolver ValueResolver) (*IndexResult, error) {
 	result := NewIndexResult(i.kind)
 	result.Default = i.defaultRule
 	result.Rules = make([]*Rule, 0, len(tr.ordering))
+	ee := newEarlyExit(i.kind)
 
 	for _, pos := range tr.ordering {
 		sort.Slice(tr.unordered[pos], func(i, j int) bool {
@@ -133,16 +134,20 @@ func (i *baseDocEqIndex) Lookup(resolver ValueResolver) (*IndexResult, error) {
 		})
 		nodes := tr.unordered[pos]
 		root := nodes[0].rule
+		ee.add(root.Head.Value)
+
 		result.Rules = append(result.Rules, root)
 		if len(nodes) > 1 {
 			result.Else[root] = make([]*Rule, len(nodes)-1)
 			for i := 1; i < len(nodes); i++ {
 				result.Else[root][i-1] = nodes[i].rule
+				ee.add(nodes[i].rule.Head.Value)
 			}
 		}
 	}
-
-	result.EarlyExit = earlyExit(result.Rules)
+	if len(result.Rules) > 1 {
+		result.EarlyExit = ee.possible()
+	}
 	return result, nil
 }
 
@@ -850,27 +855,26 @@ func stringSliceToArray(s []string) *Array {
 	return NewArray(arr...)
 }
 
-func earlyExit(rules []*Rule) bool {
-	if len(rules) < 2 {
-		return false // don't bother exiting early if there's nothing to win
-	}
-	switch rules[0].Head.DocKind() {
+type earlyExit struct {
+	values Set
+}
+
+func newEarlyExit(kind DocKind) earlyExit {
+	switch kind {
 	case CompleteDoc:
-		val := rules[0].Head.Value
-		if !val.Value.IsGround() {
-			return false
-		}
-		for i := 1; i < len(rules); i++ {
-			other := rules[i].Head.Value
-			if !other.Value.IsGround() {
-				return false
-			}
-			if !other.Equal(val) {
-				return false
-			}
-		}
-		return true
-	case PartialSetDoc, PartialObjectDoc: // TODO
+		return earlyExit{values: NewSet()}
+	}
+	return earlyExit{}
+}
+func (e earlyExit) add(t *Term) {
+	if e.values != nil {
+		e.values.Add(t)
+	}
+}
+
+func (e earlyExit) possible() bool {
+	if e.values != nil {
+		return e.values.Len() == 1 && e.values.Slice()[0].IsGround()
 	}
 	return false
 }
