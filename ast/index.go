@@ -140,9 +140,9 @@ func (i *baseDocEqIndex) Lookup(resolver ValueResolver) (*IndexResult, error) {
 			}
 		}
 	}
-	if len(result.Rules) > 1 {
-		result.EarlyExit = tr.values.Len() == 1 && tr.values.Slice()[0].IsGround()
-	}
+
+	result.EarlyExit = tr.values.Len() == 1 && tr.values.Slice()[0].IsGround()
+
 	return result, nil
 }
 

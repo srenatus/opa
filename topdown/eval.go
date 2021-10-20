@@ -1282,22 +1282,20 @@ func (e *eval) getRules(ref ast.Ref, args []*ast.Term) (*ast.IndexResult, error)
 		return nil, err
 	}
 
-	var msg string
+	var msg strings.Builder
 	if len(result.Rules) == 1 {
-		msg = "(matched 1 rule)"
+		msg.WriteString("(matched 1 rule")
 	} else {
-		var b strings.Builder
-		b.Grow(len("(matched NNNN rules)"))
-		b.WriteString("(matched ")
-		b.WriteString(strconv.Itoa(len(result.Rules)))
-		b.WriteString(" rules")
-		if result.EarlyExit && result.Rules[0].Head.DocKind() == ast.CompleteDoc {
-			b.WriteString(", early exit")
-		}
-		b.WriteRune(')')
-		msg = b.String()
+		msg.Grow(len("(matched NNNN rules)"))
+		msg.WriteString("(matched ")
+		msg.WriteString(strconv.Itoa(len(result.Rules)))
+		msg.WriteString(" rules")
 	}
-	e.traceIndex(e.query[e.index], msg, &ref)
+	if result.EarlyExit {
+		msg.WriteString(", early exit")
+	}
+	msg.WriteRune(')')
+	e.traceIndex(e.query[e.index], msg.String(), &ref)
 	return result, err
 }
 

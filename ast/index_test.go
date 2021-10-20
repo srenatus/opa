@@ -880,8 +880,8 @@ func TestBaseDocIndexResultEarlyExit(t *testing.T) {
 		expectedEE bool
 	}{
 		{
-			note:       "no early exit: single rule",
-			expectedEE: false,
+			note:       "single rule",
+			expectedEE: true,
 			module: MustParseModule(`package test
 r {
 	input.x = 1
@@ -999,8 +999,8 @@ r {
 			},
 		},
 		{
-			note:       "function: no early exit: single rule",
-			expectedEE: false,
+			note:       "function: single rule",
+			expectedEE: true,
 			module: MustParseModule(`package test
 r(x) {
 	input.x = x
