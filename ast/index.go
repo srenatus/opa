@@ -454,6 +454,9 @@ func (node *trieNode) String() string {
 	if len(node.mappers) > 0 {
 		flags = append(flags, fmt.Sprintf("%d mapper(s)", len(node.mappers)))
 	}
+	if l := node.values.Len(); l > 0 {
+		flags = append(flags, fmt.Sprintf("%d value(s)", l))
+	}
 	return strings.Join(flags, " ")
 }
 
