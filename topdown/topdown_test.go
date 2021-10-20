@@ -189,23 +189,29 @@ func TestTopDownQueryCancellation(t *testing.T) {
 		`
 		package test
 
-		p { data.arr[_] = _; test.sleep("1ms") }
+		p { data.arr[_] = x; test.sleep("10ms"); x == 999 }
 		`,
 	})
 
+	arr := make([]interface{}, 1000)
+	for i := 0; i < 1000; i++ {
+		arr[i] = i
+	}
 	data := map[string]interface{}{
-		"arr": make([]interface{}, 1000),
+		"arr": arr,
 	}
 
 	store := inmem.NewFromObject(data)
 	txn := storage.NewTransactionOrDie(ctx, store)
 	cancel := NewCancel()
+	buf := NewBufferTracer()
 
 	query := NewQuery(ast.MustParseBody("data.test.p")).
 		WithCompiler(compiler).
 		WithStore(store).
 		WithTransaction(txn).
-		WithCancel(cancel)
+		WithCancel(cancel).
+		WithTracer(buf)
 
 	go func() {
 		time.Sleep(time.Millisecond * 50)
@@ -214,7 +220,8 @@ func TestTopDownQueryCancellation(t *testing.T) {
 
 	qrs, err := query.Run(ctx)
 	if err == nil || err.(*Error).Code != CancelErr {
-		t.Fatalf("Expected cancel error but got: %v (err: %v)", qrs, err)
+		t.Errorf("Expected cancel error but got: %v (err: %v)", qrs, err)
+		PrettyTrace(os.Stdout, []*Event(*buf))
 	}
 
 }

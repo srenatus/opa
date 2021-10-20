@@ -20,6 +20,8 @@ import (
 
 type evalIterator func(*eval) error
 
+var errSignalEarlyExit = errors.New("early exit")
+
 type unifyIterator func() error
 
 type queryIDFactory struct {
@@ -90,6 +92,21 @@ func (e *eval) Run(iter evalIterator) error {
 		e.traceRedo(e.query)
 		return err
 	})
+}
+
+func (e *eval) String() string {
+	s := strings.Builder{}
+	e.string(&s)
+	return s.String()
+}
+
+func (e *eval) string(s *strings.Builder) {
+	fmt.Fprintf(s, "<query: %v index: %d", e.query, e.index)
+	if e.parent != nil {
+		s.WriteRune(' ')
+		e.parent.string(s)
+	}
+	s.WriteRune('>')
 }
 
 func (e *eval) builtinFunc(name string) (*ast.Builtin, BuiltinFunc, bool) {
@@ -640,7 +657,11 @@ func (e *eval) evalCall(terms []*ast.Term, iter unifyIterator) error {
 			terms: terms,
 			ir:    ir,
 		}
-		return eval.eval(iter)
+		err = eval.eval(iter)
+		if err == errSignalEarlyExit {
+			return nil
+		}
+		return err
 	}
 
 	bi, f, ok := e.builtinFunc(ref.String())
@@ -1639,11 +1660,6 @@ func (e evalFunc) eval(iter unifyIterator) error {
 		}
 		if next != nil {
 			prev = next
-
-			if !e.e.partial() && e.ir.EarlyExit {
-				e.e.traceExitEarly(rule)
-				break
-			}
 		}
 	}
 
@@ -1695,8 +1711,11 @@ func (e evalFunc) evalOneRule(iter unifyIterator, rule *ast.Rule, cacheKey ast.R
 
 	err := child.biunifyArrays(ast.NewArray(e.terms[1:]...), ast.NewArray(args...), e.e.bindings, child.bindings, func() error {
 		return child.eval(func(child *eval) error {
-			child.traceExit(rule)
-
+			if e.ir.EarlyExit {
+				child.traceExitEarly(rule)
+			} else {
+				child.traceExit(rule)
+			}
 			// Partial evaluation must save an expression that tests the output value if the output value
 			// was not captured to handle the case where the output value may be `false`.
 			if len(rule.Head.Args) == len(e.terms)-1 && e.e.saveSet.Contains(rule.Head.Value, child.bindings) {
@@ -1737,6 +1756,9 @@ func (e evalFunc) evalOneRule(iter unifyIterator, rule *ast.Rule, cacheKey ast.R
 			}
 
 			child.traceRedo(rule)
+			if !e.e.partial() && e.ir.EarlyExit {
+				return errSignalEarlyExit
+			}
 			return nil
 		})
 	})
@@ -2085,7 +2107,11 @@ func (e evalVirtual) eval(iter unifyIterator) error {
 			rterm:     e.rterm,
 			rbindings: e.rbindings,
 		}
-		return eval.eval(iter)
+		err := eval.eval(iter)
+		if err == errSignalEarlyExit {
+			return nil
+		}
+		return err
 	}
 }
 
@@ -2545,11 +2571,6 @@ func (e evalVirtualComplete) evalValue(iter unifyIterator) error {
 		}
 		if next != nil {
 			prev = next
-
-			if e.ir.EarlyExit {
-				e.e.traceExitEarly(rule)
-				break
-			}
 		}
 	}
 
@@ -2566,9 +2587,12 @@ func (e evalVirtualComplete) evalValueRule(iter unifyIterator, rule *ast.Rule, p
 	child := e.e.child(rule.Body)
 	child.traceEnter(rule)
 	var result *ast.Term
-
 	err := child.eval(func(child *eval) error {
-		child.traceExit(rule)
+		if e.ir.EarlyExit {
+			child.traceExitEarly(rule)
+		} else {
+			child.traceExit(rule)
+		}
 		result = child.bindings.Plug(rule.Head.Value)
 
 		if prev != nil {
@@ -2589,6 +2613,9 @@ func (e evalVirtualComplete) evalValueRule(iter unifyIterator, rule *ast.Rule, p
 		}
 
 		child.traceRedo(rule)
+		if e.ir.EarlyExit {
+			return errSignalEarlyExit
+		}
 		return nil
 	})
 
