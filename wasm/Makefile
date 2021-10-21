@@ -8,7 +8,7 @@ ifeq ($(shell tty > /dev/null && echo 1 || echo 0), 1)
 DOCKER_FLAGS += -it
 endif
 
-DOCKER_WASM_BUILDER_IMAGE ?= openpolicyagent/opa-wasm-builder
+DOCKER_WASM_BUILDER_IMAGE ?= srenatus/opa-wasm-builder
 WASM_BUILDER_VERSION := 1.6
 WASM_BUILDER_IMAGE := $(DOCKER_WASM_BUILDER_IMAGE):$(WASM_BUILDER_VERSION)
 WASM_OBJ_DIR := _obj
