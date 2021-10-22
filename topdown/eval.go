@@ -1643,13 +1643,19 @@ func (e evalFunc) eval(iter unifyIterator) error {
 	for _, rule := range e.ir.Rules {
 		next, err := e.evalOneRule(iter, rule, cacheKey, prev)
 		if err != nil {
-			return err
+			_, ok := err.(*signalEarlyExit)
+			if !ok || e.ir.EarlyExit {
+				return err
+			}
 		}
 		if next == nil {
 			for _, erule := range e.ir.Else[rule] {
 				next, err = e.evalOneRule(iter, erule, cacheKey, prev)
 				if err != nil {
-					return err
+					_, ok := err.(*signalEarlyExit)
+					if !ok || e.ir.EarlyExit {
+						return err
+					}
 				}
 				if next != nil {
 					break
