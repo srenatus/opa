@@ -20,8 +20,6 @@ import (
 
 type evalIterator func(*eval) error
 
-var errSignalEarlyExit = errors.New("early exit")
-
 type unifyIterator func() error
 
 type queryIDFactory struct {
@@ -658,7 +656,7 @@ func (e *eval) evalCall(terms []*ast.Term, iter unifyIterator) error {
 			ir:    ir,
 		}
 		err = eval.eval(iter)
-		if err == errSignalEarlyExit {
+		if isEarlyExit(err, ref) {
 			return nil
 		}
 		return err
@@ -1757,7 +1755,7 @@ func (e evalFunc) evalOneRule(iter unifyIterator, rule *ast.Rule, cacheKey ast.R
 
 			child.traceRedo(rule)
 			if !e.e.partial() && e.ir.EarlyExit {
-				return errSignalEarlyExit
+				return earlyExit(e.ref)
 			}
 			return nil
 		})
@@ -2108,7 +2106,7 @@ func (e evalVirtual) eval(iter unifyIterator) error {
 			rbindings: e.rbindings,
 		}
 		err := eval.eval(iter)
-		if err == errSignalEarlyExit {
+		if isEarlyExit(err, e.ref[:e.pos+1]) {
 			return nil
 		}
 		return err
@@ -2556,12 +2554,17 @@ func (e evalVirtualComplete) evalValue(iter unifyIterator) error {
 	for _, rule := range e.ir.Rules {
 		next, err := e.evalValueRule(iter, rule, prev)
 		if err != nil {
-			return err
+			// we ignore EE signals if we cannot exit early ourselves
+			_, ok := err.(*signalEarlyExit)
+			if !ok || e.ir.EarlyExit {
+				return err
+			}
 		}
 		if next == nil {
 			for _, erule := range e.ir.Else[rule] {
 				next, err = e.evalValueRule(iter, erule, prev)
-				if err != nil {
+				_, ok := err.(*signalEarlyExit)
+				if !ok || e.ir.EarlyExit {
 					return err
 				}
 				if next != nil {
@@ -2614,7 +2617,7 @@ func (e evalVirtualComplete) evalValueRule(iter unifyIterator, rule *ast.Rule, p
 
 		child.traceRedo(rule)
 		if e.ir.EarlyExit {
-			return errSignalEarlyExit
+			return earlyExit(e.ref)
 		}
 		return nil
 	})
@@ -3131,4 +3134,21 @@ func refContainsNonScalar(ref ast.Ref) bool {
 		}
 	}
 	return false
+}
+
+type signalEarlyExit struct {
+	ref ast.Ref
+}
+
+func (e signalEarlyExit) Error() string {
+	return fmt.Sprintf("%v: early exit", e.ref)
+}
+
+func isEarlyExit(err error, ref ast.Ref) bool {
+	e, ok := err.(*signalEarlyExit)
+	return ok && ref.Equal(e.ref)
+}
+
+func earlyExit(ref ast.Ref) error {
+	return &signalEarlyExit{ref: ref}
 }
