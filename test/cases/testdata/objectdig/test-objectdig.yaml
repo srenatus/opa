@@ -98,6 +98,17 @@ cases:
         }
     want_result: [{x: 2}]
 
+  - note: objectdig/dig_intermediate_non_object
+    query: data.test.p = x
+    modules:
+      - |
+        package test
+        
+        p = x {
+          x := object.dig({ "a": { "b": [1,2,3] } }, ["a", "b", "a"], 2)
+        }
+    want_result: [{x: 2}]
+
   - note: objectdig/dig_for_non_object
     query: data.test.p = x
     input_term: '{"obj":"object"}'
