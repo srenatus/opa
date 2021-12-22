@@ -2299,6 +2299,37 @@
       }
     },
     {
+      "name": "object.dig",
+      "decl": {
+        "args": [
+          {
+            "dynamic": {
+              "key": {
+                "type": "any"
+              },
+              "value": {
+                "type": "any"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "dynamic": {
+              "type": "any"
+            },
+            "type": "array"
+          },
+          {
+            "type": "any"
+          }
+        ],
+        "result": {
+          "type": "any"
+        },
+        "type": "function"
+      }
+    },
+    {
       "name": "object.filter",
       "decl": {
         "args": [
