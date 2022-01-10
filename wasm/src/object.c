@@ -435,10 +435,47 @@ opa_value *builtin_object_get(opa_value *obj, opa_value *key, opa_value *value)
         return NULL;
     }
 
-    opa_object_elem_t *elem = opa_object_get(opa_cast_object(obj), key);
-    if (elem != NULL)
+    // if the key is not an array, then we get that top level key from the object or return the default value
+    if (opa_value_type(key) != OPA_ARRAY) {
+        opa_object_elem_t *elem = opa_object_get(opa_cast_object(obj), key);
+        if (elem != NULL)
+        {
+            return elem->v;
+        }
+
+        return value;
+    }
+
+    size_t path_len = opa_cast_array(key)->len;
+    // if the path is empty, then we skip selecting nested keys and return the default
+    if (path_len == 0) {
+        return value;
+    }
+
+    opa_value* path_term;
+
+    int index;
+    for (opa_value *k = opa_value_iter(key, NULL); k != NULL; k = opa_value_iter(key, k))
     {
-       return elem->v;
+        index++;
+
+        opa_object_elem_t *elem = opa_object_get(opa_cast_object(obj), k);
+        if (elem == NULL)
+        {
+            return value;
+        }
+
+        if (index == path_len)
+        {
+            return elem->v;
+        }
+
+        if (opa_value_type(elem->v) != OPA_OBJECT)
+        {
+            return value;
+        }
+
+        obj = elem->v;
     }
 
     return value;
