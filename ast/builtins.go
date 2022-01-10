@@ -157,7 +157,6 @@ var DefaultBuiltins = [...]*Builtin{
 	ObjectRemove,
 	ObjectFilter,
 	ObjectGet,
-	ObjectDig,
 
 	// JSON Object Manipulation
 	JSONFilter,
@@ -1269,20 +1268,6 @@ var ObjectGet = &Builtin{
 		types.Args(
 			types.NewObject(nil, types.NewDynamicProperty(types.A, types.A)),
 			types.A,
-			types.A,
-		),
-		types.A,
-	),
-}
-
-// ObjectDig gets a series of keys in nested objects and returns the value of
-// the final key if present, otherwise it returns the default.
-var ObjectDig = &Builtin{
-	Name: "object.dig",
-	Decl: types.NewFunction(
-		types.Args(
-			types.NewObject(nil, types.NewDynamicProperty(types.A, types.A)),
-			types.NewArray(nil, types.A),
 			types.A,
 		),
 		types.A,

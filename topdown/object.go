@@ -83,68 +83,60 @@ func builtinObjectGet(_ BuiltinContext, operands []*ast.Term, iter func(*ast.Ter
 		return err
 	}
 
-	if ret := object.Get(operands[1]); ret != nil {
-		return iter(ret)
-	}
-
-	return iter(operands[2])
-}
-
-func builtinObjectDig(_ BuiltinContext, operands []*ast.Term, iter func(*ast.Term) error) error {
-	// top level object input must type check as an Object
-	object, err := builtins.ObjectOperand(operands[0].Value, 1)
-	if err != nil {
-		return err
-	}
-
-	// paths must type check as Array
+	// if the get key is not an array, attempt to get the top level key for the operand value in the object
 	path, err := builtins.ArrayOperand(operands[1].Value, 2)
 	if err != nil {
-		return err
+		if ret := object.Get(operands[1]); ret != nil {
+			return iter(ret)
+		}
+
+		return iter(operands[2])
 	}
 
-	// if the path is empty, then we skip digging and return the default
+	// if the path is empty, then we skip selecting nested keys and return the default
 	if path.Len() == 0 {
 		return iter(operands[2])
 	}
 
-	var dugTerm *ast.Term
+	var pathTerm *ast.Term
 
-	// index is used to track if the term being processed is the last in the path
+	// index is used to track if the term being processed is the last key term in the path
 	var index int
 	err = path.Iter(func(term *ast.Term) error {
 		index++
 
-		// dugTerm will either be the return value, or the object to dig for the next iteration
-		dugTerm = object.Get(term)
-		if dugTerm == nil {
-			return fmt.Errorf("dugTerm not found")
+		// pathTerm will either be the return value, or the object to dig for the next iteration
+		pathTerm = object.Get(term)
+		if pathTerm == nil {
+			return fmt.Errorf("pathTerm not found")
 		}
 
-		// if processing the final element, then we exit with whatever the current dugTerm is
+		// if processing the final element, then we exit with whatever the current pathTerm is
 		if index == path.Len() {
 			return nil
 		}
 
-		// attempt to update the object to dig on the next iteration to the current dugTerm,
-		// if this fails, then the default value will be returned
+		// to continue getting nested keys from the path, the current pathTerm must be another object.
+		// if the pathTerm is not an object, then by returning an error the default value will be
+		// returned to the caller
 		var ok bool
-		object, ok = dugTerm.Value.(ast.Object)
+		object, ok = pathTerm.Value.(ast.Object)
 		if !ok {
-			return fmt.Errorf("dugTerm was not object")
+			return fmt.Errorf("pathTerm was not object")
 		}
 
 		return nil
 	})
 
-	// err is set while working down the path when either:
+	// err is set while working through the path when either:
 	// A) an intermediate path key did not have an object value
 	// B) a path key was not found at the required depth during the search
+	// When either of these cases are true, then we return the default value instead
 	if err != nil {
 		return iter(operands[2])
 	}
 
-	return iter(dugTerm)
+	return iter(pathTerm)
 }
 
 // getObjectKeysParam returns a set of key values
@@ -196,5 +188,4 @@ func init() {
 	RegisterBuiltinFunc(ast.ObjectRemove.Name, builtinObjectRemove)
 	RegisterBuiltinFunc(ast.ObjectFilter.Name, builtinObjectFilter)
 	RegisterBuiltinFunc(ast.ObjectGet.Name, builtinObjectGet)
-	RegisterBuiltinFunc(ast.ObjectDig.Name, builtinObjectDig)
 }
