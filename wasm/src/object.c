@@ -452,33 +452,19 @@ opa_value *builtin_object_get(opa_value *obj, opa_value *key, opa_value *value)
         return value;
     }
 
-    opa_value* path_term;
-
-    int index;
-    for (opa_value *k = opa_value_iter(key, NULL); k != NULL; k = opa_value_iter(key, k))
+    for (opa_value *idx = opa_value_iter(key, NULL); idx != NULL; idx = opa_value_iter(key, idx))
     {
-        index++;
-
-        opa_object_elem_t *elem = opa_object_get(opa_cast_object(obj), k);
+        opa_value *k = opa_value_get(key, idx);
+        opa_value *elem = opa_value_get(obj, k);
         if (elem == NULL)
         {
             return value;
         }
 
-        if (index == path_len)
-        {
-            return elem->v;
-        }
-
-        if (opa_value_type(elem->v) != OPA_OBJECT)
-        {
-            return value;
-        }
-
-        obj = elem->v;
+        obj = elem;
     }
 
-    return value;
+    return obj;
 }
 
 OPA_BUILTIN
