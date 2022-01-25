@@ -3,7 +3,65 @@
 All notable changes to this project will be documented in this file. This
 project adheres to [Semantic Versioning](http://semver.org/).
 
-## Unreleased
+## 0.37.0-rc1
+
+### Fixes
+
+- Add CLI section to docs (#4241) ([#3915](https://github.com/open-policy-agent/opa/issues/3915))
+- Apply credentials masking on opa.runtime().config (#4165) ([#4159](https://github.com/open-policy-agent/opa/issues/4159))
+- Ensure http.send caching works in system.authz (#4195) ([#3946](https://github.com/open-policy-agent/opa/issues/3946))
+- ast: Adding duplicate imports check to compiler strict mode (#4228) ([#2698](https://github.com/open-policy-agent/opa/issues/2698)) authored by @johanfylling reported by @mikol
+- builtins: add object.union_n ([#4012](https://github.com/open-policy-agent/opa/issues/4012)) reported by @eliw00d
+- bundle: Roundtrip manifest before hashing ([#4233](https://github.com/open-policy-agent/opa/issues/4233)) reported by @CristianJena
+- ci: publish multi-arch image manifest lists (#4254) ([#2233](https://github.com/open-policy-agent/opa/issues/2233)) authored by @ngraef reported by @povilasv
+- docs: Add reference to rule indexing wrt coverage (#4261) ([#4170](https://github.com/open-policy-agent/opa/issues/4170)) reported by @ekcs
+- logging: Remove logger GetFields function (#4116) ([#4114](https://github.com/open-policy-agent/opa/issues/4114)) authored by @viovanov reported by @viovanov
+- plugins/bundle: Update persisted bundle activation mechanism ([#3840](https://github.com/open-policy-agent/opa/issues/3840)) reported by @dsoguet
+- wasm: Add native support for json.is_valid (#4204) ([#4140](https://github.com/open-policy-agent/opa/issues/4140)) authored by @kristiansvalland reported by @srenatus
+- website: change hero-body padding (#4255) ([#4253](https://github.com/open-policy-agent/opa/issues/4253)) authored by @srenatus
+
+### Miscellaneous
+
+-  docs/management-bundles: add hint that S3 regional endpoint should be used (#4196) (authored by @danoliver1)
+- ADOPTERS.md: Add Appsflyer to the list (#4273)
+- Add Dapr integration (#4229)
+- Add detail-tab for collapsable markdown (#4199) (authored by @bugg123)
+- Build darwin/arm64 in post tag workflow (#4182)
+- Change setup-opa action to new location
+- Commit generated code/docs in same job (#4248)
+- Follow redirects in http.send Rego checks (#4232)
+- Post patch (v0.36.1) (#4221) (authored by @srenatus)
+- Prepare v0.37.0 development (#4180)
+- add community support template (#4208)
+- ast/compile: ignore vars in built-in func calls as `with` values (#4247) (authored by @srenatus)
+- ast/parser: don't error when future kw import is redundant (#4237) (authored by @srenatus)
+- ast: add `every` future keyword (parser, internal representation) (#4179) (authored by @srenatus)
+- build(deps): bump github.com/go-ini/ini from 1.66.2 to 1.66.3 (#4257) (authored by @dependabot[bot])
+- build(deps): bump github.com/prometheus/client_golang (#4246) (authored by @dependabot[bot])
+- build(deps): bump wasmtime-go 0.32.0 -> 0.33.1 (#4217) (authored by @srenatus)
+- built-ins: add graph.reachable_paths (#4205) (authored by @justinlindh-wf)
+- chore: improves auth plugin resolution. (#4175) (authored by @jcchavezs)
+- cicd: Update release notes mentions (#4207)
+- docs/ssh-and-sudo-authorization: Add Missing Filename (#4192)
+- docs: Consistent indentation (#4201)
+- docs: Fix integration policy (#4185)
+- docs: Update generated CLI docs (authored by @)
+- docs: de-evaluate $HOME in CLI docs (#4256) (authored by @srenatus)
+- docs: fix configuration example (#4184) (authored by @rvalkenaers)
+- docs: fix typo for tls-cert-refresh-period (#4190) (authored by @mattmahn)
+- fixing broken links in the online documentation (#4224) (authored by @phelewski)
+- format: don't group iterable when one has defaulted location (#4260) (authored by @srenatus)
+- initial draft of the community badges program (#4200)
+- opa eval: add description to all formats (#4191)
+- opa inspect: unhide command (#4194)
+- removing deprecated code from test subcommand (#4250) (authored by @damienjburks)
+- topdown: Improve the builtin indexof function performance (#4169) (authored by @shuheiktgw)
+- topdown: Support indexof_n built-in function (#4172) (authored by @shuheiktgw)
+- topdown: Use `json.Valid` instead of `util.UnmarshalJSON` to avoid unnecessary allocations. (#4203) (authored by @kristiansvalland)
+- wasm: Update generated binaries (authored by @dependabot[bot])
+- website/live-blocks: bump node-fetch (2.6.1 -> 2.6.7) (#4269) (authored by @srenatus)
+- website/load-docs.sh: add versioned docs for latest version (#4222) (authored by @srenatus)
+- website: update redirects (#4103) (authored by @srenatus)
 
 ## 0.36.1
 
