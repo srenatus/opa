@@ -39,10 +39,11 @@ func TestConcurrency(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-
-	for i := 0; i < runtime.NumCPU(); i++ {
-		wg.Add(1)
+	n := runtime.NumCPU()
+	wg.Add(n)
+	for i := 0; i < n; i++ {
 		go func() {
+			defer wg.Done()
 			for n := 0; n < 1000; n++ {
 				dr := struct {
 					Result bool `json:"result"`
@@ -56,10 +57,8 @@ func TestConcurrency(t *testing.T) {
 					return
 				}
 			}
-			wg.Done()
 		}()
 	}
 
 	wg.Wait()
-
 }
