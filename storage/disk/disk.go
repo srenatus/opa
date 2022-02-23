@@ -167,9 +167,13 @@ func (db *Store) Commit(ctx context.Context, txn storage.Transaction) error {
 			return err
 		}
 		db.mu.Lock()
+		write := false // read only txn
+		readOnly := db.db.NewTransaction(write)
+		xid := atomic.AddUint64(&db.xid, uint64(1))
+		readTxn := newTransaction(xid, write, readOnly, nil, db.pm, db.partitions, db)
 		defer db.mu.Unlock()
 		for h := range db.triggers {
-			h.cb(ctx, txn, event)
+			h.cb(ctx, readTxn, event)
 		}
 	} else {
 		underlying.Abort(ctx)

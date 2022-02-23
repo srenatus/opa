@@ -7,6 +7,7 @@ package disk
 import (
 	"bytes"
 	"context"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -1041,4 +1042,74 @@ func executeTestWrite(ctx context.Context, t *testing.T, s storage.Store, x test
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestDiskTriggers(t *testing.T) {
+	test.WithTempFS(map[string]string{}, func(dir string) {
+		ctx := context.Background()
+		store, err := New(ctx, Options{Dir: dir, Partitions: []storage.Path{
+			storage.MustParsePath("/foo"),
+		}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer store.Close(ctx)
+		writeTxn := storage.NewTransactionOrDie(ctx, store, storage.WriteParams)
+		readTxn := storage.NewTransactionOrDie(ctx, store)
+
+		_, err = store.Register(ctx, readTxn, storage.TriggerConfig{
+			OnCommit: func(context.Context, storage.Transaction, storage.TriggerEvent) {},
+		})
+
+		if err == nil || !storage.IsInvalidTransaction(err) {
+			t.Fatalf("Expected transaction error: %v", err)
+		}
+
+		store.Abort(ctx, readTxn)
+
+		var event storage.TriggerEvent
+		modifiedPath := storage.MustParsePath("/a")
+		expectedValue := "hello"
+
+		_, err = store.Register(ctx, writeTxn, storage.TriggerConfig{
+			OnCommit: func(ctx context.Context, txn storage.Transaction, evt storage.TriggerEvent) {
+				result, err := store.Read(ctx, txn, modifiedPath)
+				if err != nil || !reflect.DeepEqual(result, expectedValue) {
+					t.Fatalf("Expected result to be hello for trigger read but got: %v (err: %v)", result, err)
+				}
+				event = evt
+			},
+		})
+		if err != nil {
+			t.Fatalf("Failed to register callback: %v", err)
+		}
+
+		if err := store.Write(ctx, writeTxn, storage.ReplaceOp, modifiedPath, expectedValue); err != nil {
+			t.Fatalf("Unexpected write error: %v", err)
+		}
+
+		id := "test"
+		data := []byte("package abc")
+		if err := store.UpsertPolicy(ctx, writeTxn, id, data); err != nil {
+			t.Fatalf("Unexpected upsert error: %v", err)
+		}
+
+		if err := store.Commit(ctx, writeTxn); err != nil {
+			t.Fatalf("Unexpected commit error: %v", err)
+		}
+
+		if event.IsZero() || !event.PolicyChanged() || !event.DataChanged() {
+			t.Fatalf("Expected policy and data change but got: %v", event)
+		}
+
+		expData := storage.DataEvent{Path: modifiedPath, Data: expectedValue, Removed: false}
+		if d := event.Data[0]; !reflect.DeepEqual(expData, d) {
+			t.Fatalf("Expected data event %v, got %v", expData, d)
+		}
+
+		expPolicy := storage.PolicyEvent{ID: id, Data: data, Removed: false}
+		if p := event.Policy[0]; !reflect.DeepEqual(expPolicy, p) {
+			t.Fatalf("Expected policy event %v, got %v", expPolicy, p)
+		}
+	})
 }

@@ -19,14 +19,14 @@ import (
 )
 
 type transaction struct {
-	underlying *badger.Txn      // handle for the underlying badger transaction
-	partitions *partitionTrie   // index for partitioning structure in underlying store
-	pm         *pathMapper      // used for mapping between logical storage paths and actual storage keys
-	db         *Store           // handle for the database this transaction was created on
-	xid        uint64           // unique id for this transaction
-	stale      bool             // bit to indicate if the transaction was already aborted/committed
-	write      bool             // bit to indicate if the transaction may perform writes
-	context    *storage.Context // context supplied by the caller to be included in triggers
+	underlying *badger.Txn          // handle for the underlying badger transaction
+	partitions *partitionTrie       // index for partitioning structure in underlying store
+	pm         *pathMapper          // used for mapping between logical storage paths and actual storage keys
+	db         *Store               // handle for the database this transaction was created on
+	xid        uint64               // unique id for this transaction
+	stale      bool                 // bit to indicate if the transaction was already aborted/committed
+	write      bool                 // bit to indicate if the transaction may perform writes
+	event      storage.TriggerEvent // constructed as we go, supplied by the caller to be included in triggers
 }
 
 func newTransaction(xid uint64, write bool, underlying *badger.Txn, context *storage.Context, pm *pathMapper, trie *partitionTrie, db *Store) *transaction {
@@ -38,7 +38,9 @@ func newTransaction(xid uint64, write bool, underlying *badger.Txn, context *sto
 		xid:        xid,
 		stale:      false,
 		write:      write,
-		context:    context,
+		event: storage.TriggerEvent{
+			Context: context,
+		},
 	}
 }
 
@@ -55,7 +57,7 @@ func (txn *transaction) Commit(context.Context) (storage.TriggerEvent, error) {
 	// We should figure out how to remove the code in the plugin manager that
 	// performs reads on committed transactions.
 	txn.stale = true
-	return storage.TriggerEvent{Context: txn.context}, wrapError(txn.underlying.Commit())
+	return txn.event, wrapError(txn.underlying.Commit())
 }
 
 func (txn *transaction) Abort(context.Context) {
@@ -164,16 +166,17 @@ func (txn *transaction) readOne(key []byte) (interface{}, error) {
 type update struct {
 	key    []byte
 	value  []byte
+	data   interface{}
 	delete bool
 }
 
 // errTxnTooBigErrorHandler checks if the passed error was caused by a transaction
 // that was _too big_. If so, it attempts to commit the transaction and opens a new one.
 // See https://dgraph.io/docs/badger/get-started/#read-write-transactions
-func errTxnTooBigErrorHandler(txn *transaction, err error) error {
-	errSetCommit := txn.underlying.Commit()
-	if errSetCommit != nil {
-		return wrapError(errSetCommit)
+// NOTE(sr): Does this affect our OnCommit triggers...?
+func commitAndRenewTxn(txn *transaction) error {
+	if err := txn.underlying.Commit(); err != nil {
+		return wrapError(err)
 	}
 	txn.underlying = txn.db.db.NewTransaction(true)
 	return nil
@@ -183,10 +186,10 @@ func errTxnTooBigErrorHandler(txn *transaction, err error) error {
 func deleteWithErrTxnTooBigErrorHandling(txn *transaction, u *update) error {
 	err := txn.underlying.Delete(u.key)
 	if err == badger.ErrTxnTooBig {
-		if txnErr := errTxnTooBigErrorHandler(txn, err); txnErr != nil {
-			return txnErr
+		if err := commitAndRenewTxn(txn); err != nil {
+			return err
 		}
-		return deleteWithErrTxnTooBigErrorHandling(txn, u)
+		return deleteWithErrTxnTooBigErrorHandling(txn, u) // retry
 	}
 	return wrapError(err)
 }
@@ -195,10 +198,10 @@ func deleteWithErrTxnTooBigErrorHandling(txn *transaction, u *update) error {
 func setWithErrTxnTooBigErrorHandling(txn *transaction, u *update) error {
 	err := txn.underlying.Set(u.key, u.value)
 	if err == badger.ErrTxnTooBig {
-		if txnErr := errTxnTooBigErrorHandler(txn, err); txnErr != nil {
-			return txnErr
+		if err := commitAndRenewTxn(txn); err != nil {
+			return err
 		}
-		return setWithErrTxnTooBigErrorHandling(txn, u)
+		return setWithErrTxnTooBigErrorHandling(txn, u) // retry
 	}
 	return wrapError(err)
 }
@@ -218,6 +221,12 @@ func (txn *transaction) Write(_ context.Context, op storage.PatchOp, path storag
 				return err
 			}
 		}
+
+		txn.event.Data = append(txn.event.Data, storage.DataEvent{
+			Path:    path,   // ?
+			Data:    u.data, // nil if delete == true
+			Removed: u.delete,
+		})
 	}
 	return nil
 }
@@ -255,7 +264,7 @@ func (txn *transaction) partitionWrite(op storage.PatchOp, path storage.Path, va
 			return nil, err
 		}
 
-		return []update{{key: key, value: bs}}, nil
+		return []update{{key: key, value: bs, data: modified}}, nil
 	}
 
 	key, err := txn.pm.DataPrefix2Key(path)
@@ -300,7 +309,7 @@ func (txn *transaction) partitionWriteMultiple(node *partitionTrie, path storage
 			if err != nil {
 				return nil, err
 			}
-			result = append(result, update{key: key, value: bs})
+			result = append(result, update{key: key, value: bs, data: v})
 		} else {
 			var err error
 			result, err = txn.partitionWriteMultiple(next, child, v, result)
@@ -328,7 +337,7 @@ func (txn *transaction) partitionWriteOne(op storage.PatchOp, path storage.Path,
 		return nil, err
 	}
 
-	return []update{{key: key, value: val}}, nil
+	return []update{{key: key, value: val, data: value}}, nil
 }
 
 func (txn *transaction) ListPolicies(context.Context) ([]string, error) {
@@ -355,6 +364,9 @@ func (txn *transaction) ListPolicies(context.Context) ([]string, error) {
 func (txn *transaction) GetPolicy(_ context.Context, id string) ([]byte, error) {
 	item, err := txn.underlying.Get(txn.pm.PolicyID2Key(id))
 	if err != nil {
+		if err == badger.ErrKeyNotFound {
+			return nil, errors.NewNotFoundErrorf("policy id %q", id)
+		}
 		return nil, err
 	}
 	bs, err := item.ValueCopy(nil)
@@ -362,11 +374,25 @@ func (txn *transaction) GetPolicy(_ context.Context, id string) ([]byte, error) 
 }
 
 func (txn *transaction) UpsertPolicy(_ context.Context, id string, bs []byte) error {
-	return wrapError(txn.underlying.Set(txn.pm.PolicyID2Key(id), bs))
+	if err := txn.underlying.Set(txn.pm.PolicyID2Key(id), bs); err != nil {
+		return wrapError(err)
+	}
+	txn.event.Policy = append(txn.event.Policy, storage.PolicyEvent{
+		ID:   id,
+		Data: bs,
+	})
+	return nil
 }
 
 func (txn *transaction) DeletePolicy(_ context.Context, id string) error {
-	return wrapError(txn.underlying.Delete(txn.pm.PolicyID2Key(id)))
+	if err := txn.underlying.Delete(txn.pm.PolicyID2Key(id)); err != nil {
+		return wrapError(err)
+	}
+	txn.event.Policy = append(txn.event.Policy, storage.PolicyEvent{
+		ID:      id,
+		Removed: true,
+	})
+	return nil
 }
 
 func serialize(value interface{}) ([]byte, error) {
