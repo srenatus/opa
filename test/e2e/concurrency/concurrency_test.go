@@ -2,12 +2,14 @@ package metrics
 
 import (
 	"flag"
+	"io/ioutil"
 	"os"
 	"runtime"
 	"strings"
 	"sync"
 	"testing"
 
+	"github.com/open-policy-agent/opa/storage/disk"
 	"github.com/open-policy-agent/opa/test/e2e"
 )
 
@@ -17,13 +19,25 @@ func TestMain(m *testing.M) {
 	flag.Parse()
 	testServerParams := e2e.NewAPIServerTestParams()
 
-	var err error
-	testRuntime, err = e2e.NewTestRuntimeWithOpts(e2e.TestRuntimeOpts{}, testServerParams)
+	dir, err := ioutil.TempDir("", "disk-store")
 	if err != nil {
-		os.Exit(1)
+		panic(err)
 	}
 
-	os.Exit(testRuntime.RunTests(m))
+	for _, opts := range []*disk.Options{
+		nil,
+		{Dir: dir, Partitions: nil},
+	} {
+		var err error
+		testServerParams.DiskStorage = opts
+		testRuntime, err = e2e.NewTestRuntime(testServerParams)
+		if err != nil {
+			panic(err)
+		}
+		if ec := testRuntime.RunTests(m); ec != 0 {
+			os.Exit(ec)
+		}
+	}
 }
 
 func TestConcurrency(t *testing.T) {
