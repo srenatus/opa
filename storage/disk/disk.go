@@ -175,7 +175,7 @@ func (db *Store) Commit(ctx context.Context, txn storage.Transaction) error {
 		for h := range db.triggers {
 			h.cb(ctx, readTxn, event)
 		}
-	} else {
+	} else { // committing read txn
 		underlying.Abort(ctx)
 	}
 	return nil
