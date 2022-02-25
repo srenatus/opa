@@ -817,10 +817,6 @@ func (m *Manager) updateWasmResolversData(ctx context.Context, event storage.Tri
 	m.wasmResolversMtx.Lock()
 	defer m.wasmResolversMtx.Unlock()
 
-	if len(m.wasmResolvers) == 0 {
-		return nil
-	}
-
 	for _, resolver := range m.wasmResolvers {
 		for _, dataEvent := range event.Data {
 			var err error
