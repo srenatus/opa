@@ -79,7 +79,8 @@ type Options struct {
 type Store struct {
 	db         *badger.DB           // underlying key-value store
 	xid        uint64               // next transaction id
-	mu         sync.Mutex           // synchronizes trigger execution
+	rmu        sync.RWMutex         // reader-writer lock
+	wmu        sync.Mutex           // writer lock
 	pm         *pathMapper          // maps logical storage paths to underlying store keys
 	partitions *partitionTrie       // data structure to support path mapping
 	triggers   map[*handle]struct{} // registered triggers
@@ -150,6 +151,11 @@ func (db *Store) NewTransaction(ctx context.Context, params ...storage.Transacti
 	}
 
 	xid := atomic.AddUint64(&db.xid, uint64(1))
+	if write {
+		db.wmu.Lock() // only one concurrent write txn
+	} else {
+		db.rmu.RLock()
+	}
 	underlying := db.db.NewTransaction(write)
 
 	return newTransaction(xid, write, underlying, context, db.pm, db.partitions, db), nil
@@ -162,21 +168,23 @@ func (db *Store) Commit(ctx context.Context, txn storage.Transaction) error {
 		return err
 	}
 	if underlying.write {
+		db.rmu.Lock() // blocks until all readers are done
 		event, err := underlying.Commit(ctx)
 		if err != nil {
 			return err
 		}
-		db.mu.Lock()
 		write := false // read only txn
 		readOnly := db.db.NewTransaction(write)
 		xid := atomic.AddUint64(&db.xid, uint64(1))
 		readTxn := newTransaction(xid, write, readOnly, nil, db.pm, db.partitions, db)
-		defer db.mu.Unlock()
 		for h := range db.triggers {
 			h.cb(ctx, readTxn, event)
 		}
+		db.rmu.Unlock()
+		db.wmu.Unlock()
 	} else { // committing read txn
 		underlying.Abort(ctx)
+		db.rmu.RUnlock()
 	}
 	return nil
 }
@@ -188,6 +196,11 @@ func (db *Store) Abort(ctx context.Context, txn storage.Transaction) {
 		panic(err)
 	}
 	underlying.Abort(ctx)
+	if underlying.write {
+		db.wmu.Unlock()
+	} else {
+		db.rmu.RUnlock()
+	}
 }
 
 // ListPolicies implements the storage.Policy interface.
@@ -242,8 +255,6 @@ func (db *Store) Register(_ context.Context, txn storage.Transaction, config sto
 		}
 	}
 	h := &handle{db: db, cb: config.OnCommit}
-	db.mu.Lock()
-	defer db.mu.Unlock()
 	db.triggers[h] = struct{}{}
 	return h, nil
 }
@@ -309,9 +320,7 @@ func (h *handle) Unregister(ctx context.Context, txn storage.Transaction) {
 			Message: "triggers must be unregistered with a write transaction",
 		})
 	}
-	h.db.mu.Lock()
 	delete(h.db.triggers, h)
-	h.db.mu.Unlock()
 }
 
 func (db *Store) loadMetadata(txn *badger.Txn, m *metadata) (bool, error) {
