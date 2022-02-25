@@ -835,3 +835,16 @@ The following encryption methods are supported:
 | `off` | Disable TLS |
 | `tls` | Enable TLS |
 | `mtls` | Enable mutual TLS |
+
+### Disk Storage
+
+The `storage` configuration key allows for enabling, and configuring, the
+persistent on-disk storage of an OPA instance.
+
+If `directory` is set to something, the server will enabled the on-disk store
+with data put into the configured directory.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `storage.directory` | `string` | enables on-disk store | Setting this to some path will enable the on-disk store. |
+| `storage.partitions` | `array[string]` | No | Non-overlapping `data` prefixes used for partitioning the data on disk. |
