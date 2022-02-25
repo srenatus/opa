@@ -325,14 +325,6 @@ func NewRuntime(ctx context.Context, params Params) (*Runtime, error) {
 		store = inmem.New()
 	}
 
-	// TODO(sr): there must be a better place for this
-	// go func() {
-	// 	select {
-	// 	case <-ctx.Done():
-	// 		store.Close(ctx)
-	// 	}
-	// }()
-
 	manager, err := plugins.New(config,
 		params.ID,
 		store,
