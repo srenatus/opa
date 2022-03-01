@@ -23,6 +23,7 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
+	defer func() { os.RemoveAll(dir) }()
 
 	for _, opts := range []*disk.Options{
 		nil,

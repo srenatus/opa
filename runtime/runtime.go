@@ -203,6 +203,9 @@ type Params struct {
 	// If it is nil, a new mux.Router will be created
 	Router *mux.Router
 
+	// DiskStorage, if set, will make the runtime instantiate a disk-backed storage
+	// implementation (instead of the default, in-memory store).
+	// It can also be enabled via config, and this runtime field takes precedence.
 	DiskStorage *disk.Options
 
 	DistributedTracingOpts tracing.Options
