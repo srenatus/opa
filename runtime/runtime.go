@@ -316,6 +316,13 @@ func NewRuntime(ctx context.Context, params Params) (*Runtime, error) {
 	metrics := prometheus.New(metrics.New(), errorLogger(logger))
 
 	var store storage.Store
+	if params.DiskStorage == nil {
+		params.DiskStorage, err = disk.OptionsFromConfig(config, params.ID)
+		if err != nil {
+			return nil, fmt.Errorf("parse disk store configuration: %w", err)
+		}
+	}
+
 	if params.DiskStorage != nil {
 		store, err = disk.New(ctx, *params.DiskStorage)
 		if err != nil {
