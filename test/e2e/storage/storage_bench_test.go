@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	go_runtime "runtime"
 	"strings"
 	"testing"
 
@@ -42,7 +41,7 @@ func runtime(tb testing.TB, disk bool) *e2e.TestRuntime {
 	return tr
 }
 
-func BenchmarkStorageOneBlob(b *testing.B) {
+func TestStorageOneBlob(t *testing.T) {
 	dataOfSize := func(n int) string {
 		buf := strings.Builder{}
 		buf.WriteString(`{"array": [`)
@@ -56,43 +55,34 @@ func BenchmarkStorageOneBlob(b *testing.B) {
 		return buf.String()
 	}
 
-	b.Run("store=inmem", func(b *testing.B) {
-		rt := func() *e2e.TestRuntime { return runtime(b, false) }
+	t.Run("store=inmem", func(t *testing.T) {
+		rt := func() *e2e.TestRuntime { return runtime(t, false) }
 		for _, n := range []int{10, 100, 10e2, 10e3, 10e4, 10e5, 10e6} {
-			b.Run(fmt.Sprintf("n=%d", n), runBenchmark(b, rt, dataOfSize(n)))
+			t.Run(fmt.Sprintf("n=%d", n), runTest(t, rt, dataOfSize(n)))
 		}
 	})
 
-	b.Run("store=disk", func(b *testing.B) {
-		rt := func() *e2e.TestRuntime { return runtime(b, true) }
+	t.Run("store=disk", func(t *testing.T) {
+		rt := func() *e2e.TestRuntime { return runtime(t, true) }
 		for _, n := range []int{10, 100, 10e2, 10e3, 10e4, 10e5, 10e6} {
-			b.Run(fmt.Sprintf("n=%d", n), runBenchmark(b, rt, dataOfSize(n)))
+			t.Run(fmt.Sprintf("n=%d", n), runTest(t, rt, dataOfSize(n)))
 		}
 	})
 }
 
-func runBenchmark(b *testing.B, rt func() *e2e.TestRuntime, data string) func(*testing.B) {
-	return func(b *testing.B) {
-		b.StopTimer()
-		rt, done := start(b, rt())
+func runTest(t *testing.T, rt func() *e2e.TestRuntime, data string) func(*testing.T) {
+	return func(t *testing.T) {
+		rt, _ := start(t, rt())
 
-		b.StartTimer()
-		for i := 0; i < b.N; i++ {
-			if err := rt.UploadData(strings.NewReader(data)); err != nil {
-				b.Fatal(err)
-			}
+		if err := rt.UploadData(strings.NewReader(data)); err != nil {
+			t.Fatal(err)
 		}
-		go_runtime.GC()
-		ms := go_runtime.MemStats{}
-		go_runtime.ReadMemStats(&ms)
-		b.ReportMetric(float64(ms.HeapAlloc)/float64(b.N), "heap_B/op")
-		b.StopTimer()
 
 		// shutdown
-		rt.Cancel()
-		if err := <-done; err != nil {
-			b.Fatal(err)
-		}
+		// rt.Cancel()
+		// if err := <-done; err != nil {
+		// t.Fatal(err)
+		// }
 	}
 }
 
