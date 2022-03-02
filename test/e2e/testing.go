@@ -341,7 +341,14 @@ func (t *TestRuntime) UploadDataToPath(path string, data io.Reader) error {
 		return fmt.Errorf("Failed to PUT data: %s", err)
 	}
 	if resp.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("Unexpected response: %d %s", resp.StatusCode, resp.Status)
+		if resp.Body != nil {
+			bs, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return fmt.Errorf("reading body: %w", err)
+			}
+			return fmt.Errorf("Unexpected response: %s -- %s", resp.Status, string(bs))
+		}
+		return fmt.Errorf("Unexpected response: %s", resp.Status)
 	}
 	return nil
 }
