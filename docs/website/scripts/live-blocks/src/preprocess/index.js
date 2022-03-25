@@ -79,10 +79,7 @@ async function processFile(path) {
 function getVersion(path) {
   const versionMatch = (new RegExp(`/(v[^/]*|${VERSION_EDGE}|${VERSION_LATEST})/`)).exec(filepath.resolve(path))
   if (!versionMatch) {
-    if (process.env.LATEST) {
-      return VERSION_LATEST
-    }
-    return VERSION_EDGE
+    return VERSION_LATEST
   }
 
   return versionMatch[1]
