@@ -3139,7 +3139,7 @@ func reorderBodyForSafety(builtins map[string]*Builtin, arity func(Ref) int, glo
 		return nil, unsafe
 	}
 
-	reordered := Body{}
+	reordered := make(Body, 0, len(body))
 	safe := VarSet{}
 
 	for _, e := range body {
@@ -3297,9 +3297,22 @@ func reorderBodyForClosures(arity func(Ref) int, globals VarSet, body Body) (Bod
 				continue
 			}
 
+			vs := VarSet{}
+			// Collection args to function calls, excluding vars in output position
+			WalkExprs(e, func(expr *Expr) bool {
+				vis := &VarVisitor{vars: vs, params: VarVisitorParams{SkipRefCallHead: true}}
+				if expr.IsEquality() {
+					return false
+				}
+				if terms, ok := expr.Terms.([]*Term); ok {
+					vis.Walk(expr)
+					vs = vs.Diff(outputVarsForExprCall(expr, arity(expr.Operator()), vs, terms))
+				}
+				return true
+			})
+
 			// Collect vars that are contained in closures within this
 			// expression.
-			vs := VarSet{}
 			WalkClosures(e, func(x interface{}) bool {
 				vis := &VarVisitor{vars: vs}
 				if ev, ok := x.(*Every); ok {

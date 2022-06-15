@@ -38,6 +38,12 @@ func TestOutputVarsForNode(t *testing.T) {
 			exp:   "{x}",
 		},
 		{
+			note:      "eq with ref",
+			query:     "x = y[0]",
+			extraSafe: "{y}",
+			exp:       "{x}",
+		},
+		{
 			note:  "negation",
 			query: "not x = 1",
 			exp:   "set()",
@@ -686,13 +692,16 @@ func TestCompilerCheckSafetyBodyReordering(t *testing.T) {
 		{"with-2", `data.a.b.d.t with input.x as x; x = 1`, `x = 1; data.a.b.d.t with input.x as x`},
 		{"with-nop", "data.somedoc[x] with input as true", "data.somedoc[x] with input as true"},
 		{"ref-head", `s = [["foo"], ["bar"]]; x = y[0]; y = s[_]; contains(x, "oo")`, `
-		s = [["foo"], ["bar"]];
-		y = s[_];
-		x = y[0];
-		contains(x, "oo")
+			s = [["foo"], ["bar"]];
+			y = s[_];
+			x = y[0];
+			contains(x, "oo")
 	`},
 		{"userfunc", `split(y, ".", z); data.a.b.funcs.fn("...foo.bar..", y)`, `data.a.b.funcs.fn("...foo.bar..", y); split(y, ".", z)`},
 		{"every", `every _ in [] { x != 1 }; x = 1`, `__local4__ = []; x = 1; every __local3__, _ in __local4__ { x != 1}`},
+		{"every-func",
+			`every _ in [] { x != 1 }; object.get({"foo":2}, "bar", "def", x)`,
+			`__local4__ = []; object.get({"foo": 2}, "bar", "def", x); every __local3__, _ in __local4__ { neq(x, 1) }`},
 		{"every-domain", `every _ in xs { true }; xs = [1]`, `xs = [1]; __local4__ = xs; every __local3__, _ in __local4__ { true }`},
 	}
 
@@ -745,7 +754,7 @@ r = true { a = [x | split(y, ".", z); x = z[i]; fn("...foo.bar..", y)] }`,
 	assertNotFailed(t, c)
 
 	result1 := c.Modules["mod"].Rules[1].Body
-	expected1 := MustParseBody(`v = [null | true]; data.b[i] = j; xs = [x | a = [y | y = data.c[j]; y != 1]; a[i] = x]; z = [true | i2 = i; data.a.b.d.t with input as i2]; xs[j] > 0`)
+	expected1 := MustParseBody(`v = [null | true]; data.b[i] = j; xs = [x | a = [y | y = data.c[j]; y != 1]; a[i] = x]; xs[j] > 0; z = [true | i2 = i; data.a.b.d.t with input as i2]`)
 	if !result1.Equal(expected1) {
 		t.Errorf("Expected reordered body to be equal to:\n%v\nBut got:\n%v", expected1, result1)
 	}
@@ -761,6 +770,29 @@ r = true { a = [x | split(y, ".", z); x = z[i]; fn("...foo.bar..", y)] }`,
 	if !result3.Equal(expected3) {
 		t.Errorf("Expected pre-ordered body to equal:\n%v\nBut got:\n%v", expected3, result3)
 	}
+}
+
+func TestCompilerCheckSafetyBodyReorderingClosuresXXXIssue4766(t *testing.T) {
+	// NOTE(sr): the module isn't what you'd normally write. If you chose `comp := [1 | true ]` instead,
+	// the assignment check would notice that comp was used above and asks _you_ to reorder your rules.
+	// Anyways, the bug we're cornering here happened in partial eval, and that's how the module looked.
+	c := NewCompiler()
+	c.Modules = map[string]*Module{
+		"mod": MustParseModule(
+			`package test
+			import future.keywords
+			
+			p {
+				object.get(input.subject.roles[_], comp, [""], output)
+				comp = [ 1 | true ]
+
+				every y in [2] {
+					y in output
+				}
+			}`),
+	}
+	compileStages(c, c.checkSafetyRuleBodies)
+	assertNotFailed(t, c)
 }
 
 func TestCompilerCheckSafetyBodyErrors(t *testing.T) {
