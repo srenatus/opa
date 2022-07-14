@@ -4,7 +4,7 @@
 
 VERSION := $(shell ./build/get-build-version.sh)
 
-CGO_ENABLED ?= 1
+CGO_ENABLED ?= 0
 WASM_ENABLED ?= 1
 
 # See https://golang.org/cmd/go/#hdr-Build_modes:

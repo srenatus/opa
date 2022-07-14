@@ -27,7 +27,7 @@ import (
 	"github.com/open-policy-agent/opa/topdown/cache"
 	"github.com/open-policy-agent/opa/util/test"
 
-	_ "github.com/open-policy-agent/opa/features/wasm"
+	_ "github.com/open-policy-agent/opa/features/wazero"
 )
 
 func TestPrepareAndEvalWithWasmTarget(t *testing.T) {
