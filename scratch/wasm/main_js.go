@@ -33,6 +33,7 @@ func jsonParseModule(this js.Value, args []js.Value) interface{} {
 	x, err := ast.ParseModule("policy.rego", code)
 	if err != nil {
 		errText.Set("value", err.Error())
+		return nil
 	}
 	resultText.Set("value", x.String())
 	return nil
