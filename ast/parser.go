@@ -11,9 +11,9 @@ import (
 	"io"
 	"math/big"
 	"net/url"
-	"regexp"
+	// "regexp"
 	"sort"
-	"strconv"
+	// "strconv"
 	"strings"
 
 	"gopkg.in/yaml.v2"
@@ -2076,7 +2076,7 @@ func (b *metadataParser) Append(c *Comment) {
 	b.comments = append(b.comments, c)
 }
 
-var yamlLineErrRegex = regexp.MustCompile(`^yaml: line ([[:digit:]]+):`)
+// var yamlLineErrRegex = regexp.MustCompile(`^yaml: line ([[:digit:]]+):`)
 
 func (b *metadataParser) Parse() (*Annotations, error) {
 
@@ -2087,18 +2087,18 @@ func (b *metadataParser) Parse() (*Annotations, error) {
 	}
 
 	if err := yaml.Unmarshal(b.buf.Bytes(), &raw); err != nil {
-		match := yamlLineErrRegex.FindStringSubmatch(err.Error())
-		if len(match) == 2 {
-			n, err2 := strconv.Atoi(match[1])
-			if err2 == nil {
-				index := n - 1 // line numbering is 1-based so subtract one from row
-				if index >= len(b.comments) {
-					b.loc = b.comments[len(b.comments)-1].Location
-				} else {
-					b.loc = b.comments[index].Location
-				}
-			}
-		}
+		// match := yamlLineErrRegex.FindStringSubmatch(err.Error())
+		// if len(match) == 2 {
+		// 	n, err2 := strconv.Atoi(match[1])
+		// 	if err2 == nil {
+		// 		index := n - 1 // line numbering is 1-based so subtract one from row
+		// 		if index >= len(b.comments) {
+		// 			b.loc = b.comments[len(b.comments)-1].Location
+		// 		} else {
+		// 			b.loc = b.comments[index].Location
+		// 		}
+		// 	}
+		// }
 		return nil, err
 	}
 
