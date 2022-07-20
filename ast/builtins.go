@@ -16,6 +16,9 @@ var Builtins []*Builtin
 
 // RegisterBuiltin adds a new built-in function to the registry.
 func RegisterBuiltin(b *Builtin) {
+	if Builtins == nil {
+		Builtins = make([]*Builtin, 0, len(DefaultBuiltins))
+	}
 	Builtins = append(Builtins, b)
 	BuiltinMap[b.Name] = b
 	if len(b.Infix) > 0 {

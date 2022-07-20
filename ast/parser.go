@@ -1399,13 +1399,8 @@ func (p *Parser) parseNumber() *Term {
 
 func (p *Parser) parseString() *Term {
 	if p.s.lit[0] == '"' {
-		var s string
-		err := json.Unmarshal([]byte(p.s.lit), &s)
-		if err != nil {
-			p.errorf(p.s.Loc(), "illegal string literal: %s", p.s.lit)
-			return nil
-		}
-		term := StringTerm(s).SetLocation(p.s.Loc())
+		// TODO(sr): this is a bad fix
+		term := StringTerm(p.s.lit).SetLocation(p.s.Loc())
 		return term
 	}
 	return p.parseRawString()

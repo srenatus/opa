@@ -704,15 +704,10 @@ func (w *writer) writeBracketed(str string) {
 	w.write("[" + str + "]")
 }
 
-var varRegexp = regexp.MustCompile("^[[:alpha:]_][[:alpha:][:digit:]_]*$")
+// var varRegexp = regexp.MustCompile("^[[:alpha:]_][[:alpha:][:digit:]_]*$")
 
 func (w *writer) writeRefStringPath(s ast.String) {
-	str := string(s)
-	if varRegexp.MatchString(str) && !ast.IsKeyword(str) {
-		w.write("." + str)
-	} else {
-		w.writeBracketed(s.String())
-	}
+	w.writeBracketed(s.String())
 }
 
 func (w *writer) formatVar(v ast.Var) string {

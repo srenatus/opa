@@ -130,16 +130,16 @@ var (
 	}
 
 	// Regex credit: https://www.socketloop.com/tutorials/golang-validate-hostname
-	rxHostname = regexp.MustCompile(`^([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])(\.([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]{0,61}[a-zA-Z0-9]))*$`)
+	// rxHostname = regexp.MustCompile(`^([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])(\.([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]{0,61}[a-zA-Z0-9]))*$`)
 
 	// Use a regex to make sure curly brackets are balanced properly after validating it as a AURI
-	rxURITemplate = regexp.MustCompile("^([^{]*({[^}]*})?)*$")
+	// rxURITemplate = regexp.MustCompile("^([^{]*({[^}]*})?)*$")
 
-	rxUUID = regexp.MustCompile("^(?i)[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$")
+	// rxUUID = regexp.MustCompile("^(?i)[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$")
 
-	rxJSONPointer = regexp.MustCompile("^(?:/(?:[^~/]|~0|~1)*)*$")
+	// rxJSONPointer = regexp.MustCompile("^(?:/(?:[^~/]|~0|~1)*)*$")
 
-	rxRelJSONPointer = regexp.MustCompile("^(?:0|[1-9][0-9]*)(?:#|(?:/(?:[^~/]|~0|~1)*)*)$")
+	// rxRelJSONPointer = regexp.MustCompile("^(?:0|[1-9][0-9]*)(?:#|(?:/(?:[^~/]|~0|~1)*)*)$")
 
 	lock = new(sync.RWMutex)
 )
@@ -300,37 +300,17 @@ func (f URIReferenceFormatChecker) IsFormat(input interface{}) bool {
 
 // IsFormat checks if input is a correctly formatted URI template per RFC6570
 func (f URITemplateFormatChecker) IsFormat(input interface{}) bool {
-	asString, ok := input.(string)
-	if !ok {
-		return true
-	}
-
-	u, err := url.Parse(asString)
-	if err != nil || strings.Contains(asString, `\`) {
-		return false
-	}
-
-	return rxURITemplate.MatchString(u.Path)
+	panic("stubbed")
 }
 
 // IsFormat checks if input is a correctly formatted hostname
 func (f HostnameFormatChecker) IsFormat(input interface{}) bool {
-	asString, ok := input.(string)
-	if !ok {
-		return true
-	}
-
-	return rxHostname.MatchString(asString) && len(asString) < 256
+	panic("stubbed")
 }
 
 // IsFormat checks if input is a correctly formatted UUID
 func (f UUIDFormatChecker) IsFormat(input interface{}) bool {
-	asString, ok := input.(string)
-	if !ok {
-		return true
-	}
-
-	return rxUUID.MatchString(asString)
+	panic("stubbed")
 }
 
 // IsFormat checks if input is a correctly formatted regular expression
@@ -349,20 +329,10 @@ func (f RegexFormatChecker) IsFormat(input interface{}) bool {
 
 // IsFormat checks if input is a correctly formatted JSON Pointer per RFC6901
 func (f JSONPointerFormatChecker) IsFormat(input interface{}) bool {
-	asString, ok := input.(string)
-	if !ok {
-		return true
-	}
-
-	return rxJSONPointer.MatchString(asString)
+	panic("stubbed")
 }
 
 // IsFormat checks if input is a correctly formatted relative JSON Pointer
 func (f RelativeJSONPointerFormatChecker) IsFormat(input interface{}) bool {
-	asString, ok := input.(string)
-	if !ok {
-		return true
-	}
-
-	return rxRelJSONPointer.MatchString(asString)
+	panic("stubbed")
 }
