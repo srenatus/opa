@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"syscall/js"
 
 	"github.com/open-policy-agent/opa/ast"
@@ -35,6 +36,12 @@ func jsonParseModule(this js.Value, args []js.Value) interface{} {
 		errText.Set("value", err.Error())
 		return nil
 	}
-	resultText.Set("value", x.String())
+
+	bs, err := json.MarshalIndent(x, "", "  ")
+	if err != nil {
+		errText.Set("value", err.Error())
+		return nil
+	}
+	resultText.Set("value", string(bs))
 	return nil
 }

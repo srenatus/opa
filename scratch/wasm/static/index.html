@@ -6,16 +6,20 @@
 	</head>
 	<body>
 		<h1>WebAssembly</h1>
-		<textarea id="rego" name="rego" rows="10" cols="80">
+		<div>
+		  <textarea id="rego" name="rego" rows="10" cols="80">
 package play
 
 import future.keywords
 
 foo := "bar" if every x in [1, 2, 3] { x > 0 }
-		</textarea>
-		<textarea id="result" name="result" rows="10" cols="80"/>
-		</textarea>
-		<textarea id="error" name="error" rows="10" cols="80"/>
-		</textarea>
+</textarea>
+		</div>
+		<div>
+		<textarea id="result" name="result" rows="100" cols="80"/></textarea>
+		</div>
+		<div>
+		<textarea id="error" name="error" rows="10" cols="80"/></textarea>
+		</div>
 	</body>
 </html>
