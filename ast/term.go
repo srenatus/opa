@@ -13,7 +13,6 @@ import (
 	"math"
 	"math/big"
 	"net/url"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -1053,8 +1052,6 @@ func (ref Ref) Ptr() (string, error) {
 	return strings.Join(parts, "/"), nil
 }
 
-var varRegexp = regexp.MustCompile("^[[:alpha:]_][[:alpha:][:digit:]_]*$")
-
 func (ref Ref) String() string {
 	if len(ref) == 0 {
 		return ""
@@ -1064,12 +1061,7 @@ func (ref Ref) String() string {
 	for _, p := range path {
 		switch p := p.Value.(type) {
 		case String:
-			str := string(p)
-			if varRegexp.MatchString(str) && len(buf) > 0 && !IsKeyword(str) {
-				buf = append(buf, "."+str)
-			} else {
-				buf = append(buf, "["+p.String()+"]")
-			}
+			buf = append(buf, "["+p.String()+"]")
 		default:
 			buf = append(buf, "["+p.String()+"]")
 		}
