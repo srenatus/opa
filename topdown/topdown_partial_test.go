@@ -1921,6 +1921,30 @@ func TestTopDownPartialEval(t *testing.T) {
 			wantQueries: []string{`__localcp1__ = input.a`},
 		},
 		{
+			note:  "copy propagation: duplicates",
+			query: "data.test.p",
+			modules: []string{`package test
+				p {
+					input.a == input.b
+					input.a == input.b
+				}`,
+			},
+			wantQueries: []string{`input.a = input.b`},
+		},
+		{
+			note:  "copy propagation: impossible bodies, complete rule",
+			query: "data.test.p",
+			modules: []string{`package test
+				p {
+					q
+					not q
+				}
+				q {
+					input
+				}`,
+			},
+		},
+		{
 			note:  "save set vars are namespaced",
 			query: "input = x; data.test.f(1)",
 			modules: []string{

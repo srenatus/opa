@@ -76,13 +76,13 @@ func (p *CopyPropagator) WithCompiler(c *ast.Compiler) *CopyPropagator {
 }
 
 // Apply executes the copy propagation optimization and returns a new query.
-func (p *CopyPropagator) Apply(query ast.Body) ast.Body {
+func (p *CopyPropagator) Apply(query ast.Body) *ast.Body {
 
 	result := ast.NewBody()
 
 	uf, ok := makeDisjointSets(p.livevars, query)
 	if !ok {
-		return query
+		return &query
 	}
 
 	// Compute set of vars that appear in the head of refs in the query. If a var
@@ -116,7 +116,14 @@ func (p *CopyPropagator) Apply(query ast.Body) ast.Body {
 		expr = p.plugBindings(pctx, expr)
 
 		if p.updateBindings(pctx, expr) {
-			result.Append(expr)
+			impossible, duplicate := check(result, expr)
+			switch {
+			case impossible:
+				return nil
+			case !duplicate:
+				result.Append(expr)
+			}
+
 		}
 	}
 
@@ -188,14 +195,14 @@ func (p *CopyPropagator) Apply(query ast.Body) ast.Body {
 	if len(unsafe) > 0 {
 		// NOTE(tsandall): This should be impossible but if it does occur, throw
 		// away the result rather than generating unsafe output.
-		return query
+		return &query
 	}
 
 	if p.ensureNonEmptyBody && len(result) == 0 {
 		result = append(result, ast.NewExpr(ast.BooleanTerm(true)))
 	}
 
-	return result
+	return &result
 }
 
 // plugBindings applies the binding list and union-find to x. This process
@@ -472,4 +479,21 @@ func isNoop(expr *ast.Expr) bool {
 	}
 
 	return false
+}
+
+func check(body ast.Body, expr *ast.Expr) (bool, bool) {
+	expr.Index = 0 // it's reset anyways
+	for i := range body {
+		expr0 := body[i].Copy()
+		expr0.Index = 0 // reset index for comparison
+
+		if expr0.Equal(expr) {
+			return false, true
+		}
+		expr0.Negated = !expr0.Negated
+		if expr0.Equal(expr) {
+			return true, false
+		}
+	}
+	return false, false
 }

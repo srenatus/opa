@@ -616,7 +616,11 @@ func (e *eval) evalNotPartial(iter evalIterator) error {
 			return nil
 		}
 		if cp != nil {
-			plugged = applyCopyPropagation(cp, e.instr, plugged)
+			cped := applyCopyPropagation(cp, e.instr, plugged)
+			if cped == nil {
+				return nil
+			}
+			plugged = *cped
 		}
 		savedQueries = append(savedQueries, plugged)
 		return nil
@@ -2533,7 +2537,14 @@ func (e evalVirtualPartial) partialEvalSupportRule(rule *ast.Rule, path ast.Ref)
 				cp := copypropagation.New(head.Vars()).
 					WithEnsureNonEmptyBody(true).
 					WithCompiler(e.e.compiler)
-				plugged = applyCopyPropagation(cp, e.e.instr, plugged)
+
+				cped := applyCopyPropagation(cp, e.e.instr, plugged)
+				if cped == nil {
+					child.traceRedo(rule)
+					e.e.saveStack.PushQuery(current)
+					return nil
+				}
+				plugged = *cped
 			}
 
 			e.e.saveSupport.Insert(path, &ast.Rule{
@@ -2813,7 +2824,13 @@ func (e evalVirtualComplete) partialEvalSupportRule(rule *ast.Rule, path ast.Ref
 				cp := copypropagation.New(head.Vars()).
 					WithEnsureNonEmptyBody(true).
 					WithCompiler(e.e.compiler)
-				plugged = applyCopyPropagation(cp, e.e.instr, plugged)
+				cped := applyCopyPropagation(cp, e.e.instr, plugged)
+				if cped == nil {
+					child.traceRedo(rule)
+					e.e.saveStack.PushQuery(current)
+					return nil
+				}
+				plugged = *cped
 			}
 
 			e.e.saveSupport.Insert(path, &ast.Rule{
@@ -3116,7 +3133,7 @@ func getSavePairsFromTerm(x *ast.Term, b *bindings, result []savePair) []savePai
 	return result
 }
 
-func applyCopyPropagation(p *copypropagation.CopyPropagator, instr *Instrumentation, body ast.Body) ast.Body {
+func applyCopyPropagation(p *copypropagation.CopyPropagator, instr *Instrumentation, body ast.Body) *ast.Body {
 	instr.startTimer(partialOpCopyPropagation)
 	result := p.Apply(body)
 	instr.stopTimer(partialOpCopyPropagation)
