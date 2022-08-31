@@ -8,12 +8,13 @@ package plugins
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/gorilla/mux"
 	"github.com/open-policy-agent/opa/ast"
 	"github.com/open-policy-agent/opa/bundle"
 	"github.com/open-policy-agent/opa/config"
@@ -32,7 +33,7 @@ import (
 
 // Factory defines the interface OPA uses to instantiate your plugin.
 //
-// When OPA processes it's configuration it looks for factories that
+// When OPA processes its configuration it looks for factories that
 // have been registered by calling runtime.RegisterPlugin. Factories
 // are registered to a name which is used to key into the
 // configuration blob. If your plugin has not been configured, your

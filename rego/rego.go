@@ -25,6 +25,7 @@ import (
 	"github.com/open-policy-agent/opa/internal/wasm/encoding"
 	"github.com/open-policy-agent/opa/loader"
 	"github.com/open-policy-agent/opa/metrics"
+	"github.com/open-policy-agent/opa/plugins"
 	"github.com/open-policy-agent/opa/resolver"
 	"github.com/open-policy-agent/opa/storage"
 	"github.com/open-policy-agent/opa/storage/inmem"
@@ -359,11 +360,15 @@ func (pq preparedQuery) newEvalContext(ctx context.Context, options []EvalOption
 			// Note that it could still be nil
 			ectx.rawInput = pq.r.rawInput
 		}
-		if pq.r.target != targetWasm {
+		switch pq.r.target {
+		case targetWasm: // nothing to do
+		case targetRego, "":
 			ectx.parsedInput, err = pq.r.parseRawInput(ectx.rawInput, ectx.metrics)
 			if err != nil {
 				return nil, finishFunc, err
 			}
+		default:
+			panic("unknown target " + pq.r.target)
 		}
 	}
 
@@ -517,6 +522,8 @@ type Rego struct {
 	printHook              print.Hook
 	enablePrintStatements  bool
 	distributedTacingOpts  tracing.Options
+	plugins                *plugins.Manager
+	targetPrepState        TargetPlugin
 }
 
 // Function represents a built-in function that is callable in Rego.
@@ -1083,6 +1090,12 @@ func EnablePrintStatements(yes bool) func(r *Rego) {
 	}
 }
 
+func PluginManager(m *plugins.Manager) func(r *Rego) {
+	return func(r *Rego) {
+		r.plugins = m
+	}
+}
+
 // New returns a new Rego object.
 func New(options ...func(r *Rego)) *Rego {
 
@@ -1483,8 +1496,8 @@ func (r *Rego) PrepareForEval(ctx context.Context, opts ...PrepareOption) (Prepa
 		return PreparedEvalQuery{}, err
 	}
 
-	if r.target == targetWasm {
-
+	switch r.target {
+	case targetWasm:
 		if r.hasWasmModule() {
 			_ = txnClose(ctx, err) // Ignore error
 			return PreparedEvalQuery{}, fmt.Errorf("wasm target not supported")
@@ -1522,6 +1535,16 @@ func (r *Rego) PrepareForEval(ctx context.Context, opts ...PrepareOption) (Prepa
 			return PreparedEvalQuery{}, err
 		}
 		r.opa = o
+	case targetRego, "": // continue, "" is the default, "rego"
+	default:
+		if tgt := r.targetPlugin(r.target); tgt != nil {
+			r.targetPrepState, err = tgt.PrepareForEval(ctx, opts...)
+			if err != nil {
+				return PreparedEvalQuery{}, err
+			}
+		} else {
+			panic("unknown target: " + r.target)
+		}
 	}
 
 	txnErr := txnClose(ctx, err) // Always call closer
@@ -1533,6 +1556,21 @@ func (r *Rego) PrepareForEval(ctx context.Context, opts ...PrepareOption) (Prepa
 	}
 
 	return PreparedEvalQuery{preparedQuery{r, pCfg}}, err
+}
+
+type TargetPlugin interface {
+	PrepareForEval(context.Context, ...PrepareOption) (TargetPlugin, error)
+	PreparedEvalQuery() *PreparedEvalQuery
+	Eval(context.Context) (ast.Set, error) // needs opts
+}
+
+const regoTargetPrefix = "rego.target"
+
+func (r *Rego) targetPlugin(tgt string) TargetPlugin {
+	if p := r.plugins.Plugin(regoTargetPrefix + "." + tgt); p != nil {
+		return p.(TargetPlugin)
+	}
+	return nil
 }
 
 // PrepareForPartial will parse inputs, modules, and query arguments in preparation
@@ -1890,8 +1928,37 @@ func (r *Rego) compileQuery(query ast.Body, imports []*ast.Import, m metrics.Met
 }
 
 func (r *Rego) eval(ctx context.Context, ectx *EvalContext) (ResultSet, error) {
-	if r.opa != nil {
+	switch r.target {
+	case targetWasm:
 		return r.evalWasm(ctx, ectx)
+	case "", targetRego: // continue
+	default:
+		if r.targetPrepState != nil {
+			resultSet, err := r.targetPrepState.Eval(ctx)
+			if err != nil {
+				return nil, err
+			}
+			var rs ResultSet
+			err = resultSet.Iter(func(term *ast.Term) error {
+				obj, ok := term.Value.(ast.Object)
+				if !ok {
+					return fmt.Errorf("illegal result type")
+				}
+				qr := topdown.QueryResult{}
+				obj.Foreach(func(k, v *ast.Term) {
+					kvt := ast.VarTerm(string(k.Value.(ast.String)))
+					qr[kvt.Value.(ast.Var)] = v
+				})
+				result, err := r.generateResult(qr, ectx)
+				if err != nil {
+					return err
+				}
+				rs = append(rs, result)
+				return nil
+			})
+		} else {
+			panic("unknown target/didn't run prep: " + r.target)
+		}
 	}
 
 	q := topdown.NewQuery(ectx.compiledQuery.query).

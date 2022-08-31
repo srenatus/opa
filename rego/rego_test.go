@@ -27,6 +27,7 @@ import (
 	"github.com/open-policy-agent/opa/bundle"
 	"github.com/open-policy-agent/opa/internal/storage/mock"
 	"github.com/open-policy-agent/opa/metrics"
+	"github.com/open-policy-agent/opa/plugins"
 	"github.com/open-policy-agent/opa/storage"
 	"github.com/open-policy-agent/opa/storage/inmem"
 	"github.com/open-policy-agent/opa/topdown"
@@ -2132,9 +2133,48 @@ func TestGenerateJSON(t *testing.T) {
 	r := New(
 		Query("input"),
 		Input("original-input"),
-		GenerateJSON(func(t *ast.Term, ectx *EvalContext) (interface{}, error) {
+		GenerateJSON(func(*ast.Term, *EvalContext) (interface{}, error) {
 			return "converted-input", nil
 		}),
 	)
 	assertEval(t, r, `[["converted-input"]]`)
+}
+
+type testPlugin struct {
+	state string
+}
+
+func (*testPlugin) Start(context.Context) error {
+	return nil
+}
+
+func (*testPlugin) Stop(context.Context) {
+}
+
+func (*testPlugin) Reconfigure(context.Context, interface{}) {
+}
+
+func (*testPlugin) PrepareForEval(context.Context, ...PrepareOption) (TargetPlugin, error) {
+	return &testPlugin{state: "newstate"}, nil
+}
+
+func (*testPlugin) PreparedEvalQuery() *PreparedEvalQuery {
+	return nil // needed?
+}
+
+func (t *testPlugin) Eval(context.Context) (ast.Set, error) {
+	return ast.NewSet(ast.NewTerm(ast.NewObject([2]*ast.Term{ast.StringTerm("state"), ast.StringTerm(t.state)}))), nil
+}
+
+func TestTargetViaPlugin(t *testing.T) {
+	tp := testPlugin{}
+	pm, _ := plugins.New(nil, "rego-test", inmem.New())
+	pm.Register("rego.target.foo", &tp)
+	r := New(
+		Query("input"),
+		Input("original-input"),
+		PluginManager(pm),
+		Target("foo"),
+	)
+	assertEval(t, r, `[]`)
 }

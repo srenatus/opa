@@ -45,14 +45,14 @@ type testPlugin struct {
 	events []EventV1
 }
 
-func (p *testPlugin) Start(context.Context) error {
+func (*testPlugin) Start(context.Context) error {
 	return nil
 }
 
-func (p *testPlugin) Stop(context.Context) {
+func (*testPlugin) Stop(context.Context) {
 }
 
-func (p *testPlugin) Reconfigure(context.Context, interface{}) {
+func (*testPlugin) Reconfigure(context.Context, interface{}) {
 }
 
 func (p *testPlugin) Log(_ context.Context, event EventV1) error {
