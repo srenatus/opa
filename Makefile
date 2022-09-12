@@ -72,11 +72,11 @@ ifneq (,$(TELEMETRY_URL))
 TELEMETRY_FLAG := -X github.com/open-policy-agent/opa/internal/report.ExternalServiceURL=$(TELEMETRY_URL)
 endif
 
-LDFLAGS := "$(TELEMETRY_FLAG) \
+LDFLAGS := $(TELEMETRY_FLAG) \
 	-X github.com/open-policy-agent/opa/version.Version=$(VERSION) \
 	-X github.com/open-policy-agent/opa/version.Vcs=$(BUILD_COMMIT) \
 	-X github.com/open-policy-agent/opa/version.Timestamp=$(BUILD_TIMESTAMP) \
-	-X github.com/open-policy-agent/opa/version.Hostname=$(BUILD_HOSTNAME)"
+	-X github.com/open-policy-agent/opa/version.Hostname=$(BUILD_HOSTNAME)
 
 
 ######################################################
@@ -111,14 +111,14 @@ image:
 
 .PHONY: install
 install: generate
-	$(GO) install $(GO_TAGS) -ldflags $(LDFLAGS)
+	$(GO) install $(GO_TAGS) -ldflags "$(LDFLAGS)"
 
 .PHONY: test
 test: go-test wasm-test
 
 .PHONY: go-build
 go-build: generate
-	$(GO) build $(GO_TAGS) -o $(BIN) -ldflags $(LDFLAGS)
+	$(GO) build $(GO_TAGS) -o $(BIN) -ldflags "$(LDFLAGS)"
 
 .PHONY: go-test
 go-test: generate
@@ -281,7 +281,7 @@ ci-build-linux: ensure-release-dir ensure-linux-toolchain
 
 .PHONY: ci-build-linux-static
 ci-build-linux-static: ensure-release-dir
-	@$(MAKE) build GOOS=linux WASM_ENABLED=0 CGO_ENABLED=0
+	$(MAKE) build GOOS=linux LDFLAGS="$(LDFLAGS) -extldflags=-static"
 	chmod +x opa_linux_$(GOARCH)
 	mv opa_linux_$(GOARCH) $(RELEASE_DIR)/opa_linux_$(GOARCH)_static
 	cd $(RELEASE_DIR)/ && shasum -a 256 opa_linux_$(GOARCH)_static > opa_linux_$(GOARCH)_static.sha256

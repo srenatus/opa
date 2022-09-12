@@ -262,7 +262,6 @@ jobs:
             exec: opa_linux_amd64
           - os: ubuntu-22.04
             exec: opa_linux_amd64_static
-            wasm: disabled
           - os: macos-latest
             exec: opa_darwin_amd64
           - os: windows-latest
@@ -283,7 +282,6 @@ jobs:
 
       - name: Test binaries (Wasm)
         run: make ci-binary-smoke-test-wasm BINARY=${{ matrix.exec }}
-        if: matrix.wasm != 'disabled'
 
   go-version-build:
     name: Go compat build/test
