@@ -16,8 +16,8 @@ import (
 
 	"github.com/containerd/containerd/remotes/docker"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"oras.land/oras-go/pkg/content"
-	"oras.land/oras-go/pkg/oras"
+	oras "oras.land/oras-go/v2"
+	"oras.land/oras-go/v2/content"
 
 	"github.com/open-policy-agent/opa/bundle"
 	"github.com/open-policy-agent/opa/logging"
@@ -42,8 +42,7 @@ type OCIDownloader struct {
 	mtx            sync.Mutex
 	stopped        bool
 	persist        bool
-	store          *content.OCI
-	etag           string
+	store          *content.Fetcher
 }
 
 // New returns a new Downloader that can be started.
@@ -99,9 +98,8 @@ func (d *OCIDownloader) WithBundlePersistence(persist bool) *OCIDownloader {
 func (d *OCIDownloader) ClearCache() {
 }
 
-// SetCache sets the etag value to the SHA of the loaded bundle
+// TODO: this will need implementation for the OCI downloader.
 func (d *OCIDownloader) SetCache(etag string) {
-	d.etag = etag
 }
 
 // Trigger can be used to control when the downloader attempts to download
@@ -215,7 +213,6 @@ func (d *OCIDownloader) oneShot(ctx context.Context) error {
 		}
 		return err
 	}
-	d.SetCache(resp.etag) // set the current etag sha to the cache
 
 	if d.f != nil {
 		d.f(ctx, Update{ETag: resp.etag, Bundle: resp.b, Error: nil, Metrics: m, Raw: resp.raw})
@@ -251,26 +248,14 @@ func (d *OCIDownloader) download(ctx context.Context, m metrics.Metrics) (*downl
 	if tarballDescriptor.MediaType == "" {
 		return nil, fmt.Errorf("no tarball descriptor found in the layers")
 	}
-	etag := string(tarballDescriptor.Digest.Hex())
-	bundleFilePath := filepath.Join(d.localStorePath, "blobs", "sha256", etag)
-	// if the downloader etag sha is the same with digest of the tarball it was already loaded
-	if d.etag == etag {
-		return &downloaderResponse{
-			b:        nil,
-			raw:      nil,
-			etag:     etag,
-			longPoll: false,
-		}, nil
-	}
+
+	bundleFilePath := filepath.Join(d.localStorePath, "blobs", "sha256", string(tarballDescriptor.Digest.Hex()))
 	fileReader, err := os.Open(bundleFilePath)
 	if err != nil {
 		return nil, err
 	}
 	loader := bundle.NewTarballLoaderWithBaseURL(fileReader, d.localStorePath)
-	reader := bundle.NewCustomReader(loader).WithBaseDir(d.localStorePath).
-		WithMetrics(m).
-		WithBundleVerificationConfig(d.bvc).
-		WithBundleEtag(etag)
+	reader := bundle.NewCustomReader(loader).WithBaseDir(d.localStorePath)
 	bundleInfo, err := reader.Read()
 	if err != nil {
 		return &downloaderResponse{}, fmt.Errorf("unexpected error %w", err)
@@ -281,7 +266,7 @@ func (d *OCIDownloader) download(ctx context.Context, m metrics.Metrics) (*downl
 	return &downloaderResponse{
 		b:        &bundleInfo,
 		raw:      fileReader,
-		etag:     etag,
+		etag:     "",
 		longPoll: false,
 	}, nil
 }
