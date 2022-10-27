@@ -20,10 +20,15 @@ func main() {
 			results := ast.CompilerStages(args[0].String())
 			res := make([]interface{}, len(results))
 			for i, s := range results {
-				res[i] = map[string]interface{}{
-					"stage":  s.Stage,
-					"result": formatMod(s.Result),
+				m := map[string]interface{}{
+					"stage": s.Stage,
 				}
+				if s.Error != "" {
+					m["error"] = s.Error
+				} else {
+					m["result"] = formatMod(s.Result)
+				}
+				res[i] = m
 			}
 			return res
 		}),
