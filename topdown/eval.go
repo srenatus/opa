@@ -1877,8 +1877,11 @@ func (e evalFunc) evalCache(argCount int, iter unifyIterator) (ast.Ref, bool, er
 		cacheKey[i] = e.e.bindings.Plug(e.terms[i])
 	}
 
-	cached := e.e.virtualCache.Get(cacheKey)
-	if cached != nil {
+	cached, ok := e.e.virtualCache.Get(cacheKey)
+	if ok {
+		if cached == nil {
+			return nil, true, nil
+		}
 		e.e.instr.counterIncr(evalOpVirtualCacheHit)
 		if argCount == len(e.terms)-1 { // f(x)
 			if ast.Boolean(false).Equal(cached.Value) {
@@ -2405,8 +2408,11 @@ func (e evalVirtualPartial) evalEachRule(iter unifyIterator, unknown bool) error
 func (e evalVirtualPartial) evalAllRules(iter unifyIterator, rules []*ast.Rule) error {
 
 	cacheKey := e.plugged[:e.pos+1]
-	result := e.e.virtualCache.Get(cacheKey)
-	if result != nil {
+	result, ok := e.e.virtualCache.Get(cacheKey)
+	if ok {
+		if result == nil {
+			return nil
+		}
 		e.e.instr.counterIncr(evalOpVirtualCacheHit)
 		return e.e.biunify(result, e.rterm, e.bindings, e.rbindings, iter)
 	}
@@ -2458,6 +2464,7 @@ func (e evalVirtualPartial) evalOneRulePreUnify(iter unifyIterator, rule *ast.Ru
 
 	child.traceEnter(rule)
 	var defined bool
+	var elem *ast.Term
 
 	headKey := rule.Head.Key
 	if headKey == nil {
@@ -2466,16 +2473,12 @@ func (e evalVirtualPartial) evalOneRulePreUnify(iter unifyIterator, rule *ast.Ru
 	err := child.biunify(headKey, key, child.bindings, e.bindings, func() error {
 		defined = true
 		return child.eval(func(child *eval) error {
-
 			term := rule.Head.Value
 			if term == nil {
 				term = headKey
 			}
 
-			if hint.key != nil {
-				result := child.bindings.Plug(term)
-				e.e.virtualCache.Put(hint.key, result)
-			}
+			elem = child.bindings.Plug(term)
 
 			// NOTE(tsandall): if the rule set depends on any unknowns then do
 			// not perform the duplicate check because evaluation of the ruleset
@@ -2512,6 +2515,10 @@ func (e evalVirtualPartial) evalOneRulePreUnify(iter unifyIterator, rule *ast.Ru
 	// TODO(tsandall): why are we tracing here? this looks wrong.
 	if !defined {
 		child.traceFail(rule)
+	}
+
+	if hint.key != nil {
+		e.e.virtualCache.Put(hint.key, elem)
 	}
 
 	return nil
@@ -2667,9 +2674,12 @@ func (e evalVirtualPartial) evalCache(iter unifyIterator) (evalVirtualPartialCac
 		return hint, nil
 	}
 
-	if cached := e.e.virtualCache.Get(e.plugged[:e.pos+1]); cached != nil { // have full extent cached
+	if cached, ok := e.e.virtualCache.Get(e.plugged[:e.pos+1]); ok { // have full extent cached
 		e.e.instr.counterIncr(evalOpVirtualCacheHit)
 		hint.hit = true
+		if cached == nil {
+			return hint, nil
+		}
 		return hint, e.evalTerm(iter, e.pos+1, cached, e.bindings)
 	}
 
@@ -2678,9 +2688,12 @@ func (e evalVirtualPartial) evalCache(iter unifyIterator) (evalVirtualPartialCac
 	if plugged.IsGround() {
 		hint.key = append(e.plugged[:e.pos+1], plugged)
 
-		if cached := e.e.virtualCache.Get(hint.key); cached != nil {
+		if cached, ok := e.e.virtualCache.Get(hint.key); ok {
 			e.e.instr.counterIncr(evalOpVirtualCacheHit)
 			hint.hit = true
+			if cached == nil {
+				return hint, nil
+			}
 			return hint, e.evalTerm(iter, e.pos+2, cached, e.bindings)
 		}
 	} else if _, ok := plugged.Value.(ast.Var); ok {
@@ -2766,8 +2779,11 @@ func (e evalVirtualComplete) eval(iter unifyIterator) error {
 }
 
 func (e evalVirtualComplete) evalValue(iter unifyIterator, findOne bool) error {
-	cached := e.e.virtualCache.Get(e.plugged[:e.pos+1])
-	if cached != nil {
+	cached, ok := e.e.virtualCache.Get(e.plugged[:e.pos+1])
+	if ok {
+		if cached == nil {
+			return nil
+		}
 		e.e.instr.counterIncr(evalOpVirtualCacheHit)
 		return e.evalTerm(iter, cached, e.bindings)
 	}

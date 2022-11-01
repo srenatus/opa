@@ -14,7 +14,7 @@ func TestVirtualCacheCompositeKey(t *testing.T) {
 	cache := newVirtualCache()
 	ref := ast.MustParseRef("data.x.y[[1]].z")
 	cache.Put(ref, ast.BooleanTerm(true))
-	result := cache.Get(ref)
+	result, _ := cache.Get(ref)
 	if !result.Equal(ast.BooleanTerm(true)) {
 		t.Fatalf("Expected true but got %v", result)
 	}
@@ -24,9 +24,9 @@ func TestVirtualCachePutNilResult(t *testing.T) {
 	cache := newVirtualCache()
 	ref := ast.MustParseRef("data.x.y[[1]].z")
 	cache.Put(ref, nil)
-	result := cache.Get(ref)
-	if !result.Equal(ast.BooleanTerm(true)) {
-		t.Fatalf("Expected true but got %v", result)
+	result, ok := cache.Get(ref)
+	if !ok || result != nil {
+		t.Fatalf("Expected (result, ok) = (nil, true), got (%v, %v)", result, ok)
 	}
 }
 
@@ -35,7 +35,7 @@ func TestVirtualCacheInvalidate(t *testing.T) {
 	cache.Push()
 	cache.Put(ast.MustParseRef("data.x.p"), ast.BooleanTerm(true))
 	cache.Pop()
-	result := cache.Get(ast.MustParseRef("data.x.p"))
+	result, _ := cache.Get(ast.MustParseRef("data.x.p"))
 	if result != nil {
 		t.Fatal("Expected nil result but got:", result)
 	}
