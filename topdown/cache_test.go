@@ -20,6 +20,16 @@ func TestVirtualCacheCompositeKey(t *testing.T) {
 	}
 }
 
+func TestVirtualCachePutNilResult(t *testing.T) {
+	cache := newVirtualCache()
+	ref := ast.MustParseRef("data.x.y[[1]].z")
+	cache.Put(ref, nil)
+	result := cache.Get(ref)
+	if !result.Equal(ast.BooleanTerm(true)) {
+		t.Fatalf("Expected true but got %v", result)
+	}
+}
+
 func TestVirtualCacheInvalidate(t *testing.T) {
 	cache := newVirtualCache()
 	cache.Push()
