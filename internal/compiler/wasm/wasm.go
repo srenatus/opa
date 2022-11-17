@@ -261,7 +261,7 @@ func New() *Compiler {
 	c.stages = []func() error{
 		c.initModule,
 		c.compileStringsAndBooleans,
-		c.addImportMemoryDecl,
+		// c.addImportMemoryDecl,
 		c.compileExternalFuncDecls,
 		c.compileEntrypointDecls,
 		c.compileFuncs,
