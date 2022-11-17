@@ -30,7 +30,7 @@ type moduleOpts struct {
 	vm         *VM
 }
 
-//wrapper for wazero policy module and environment module
+// wrapper for wazero policy module and environment module
 type Module struct {
 	module, env            api.Module
 	ctx, ctxt              context.Context
@@ -48,31 +48,36 @@ type Module struct {
 
 // Env is a wasm module that holds the shared memory buffer and the builtin bindings
 func (m *Module) newEnv(opts moduleOpts, r wazero.Runtime) (api.Module, error) {
-	if opts.maxMemSize == (moduleOpts{}).maxMemSize {
+	if opts.maxMemSize == 0 {
 
-		return r.NewModuleBuilder("env").
-			ExportFunction("opa_abort", m.opaAbort).
-			ExportFunction("opa_builtin0", m.C0).
-			ExportFunction("opa_builtin1", m.C1).
-			ExportFunction("opa_builtin2", m.C2).
-			ExportFunction("opa_builtin3", m.C3).
-			ExportFunction("opa_builtin4", m.C4).
-			ExportFunction("opa_println", m.opaPrintln).
-			ExportMemory("memory", uint32(opts.minMemSize)).
+		return r.NewHostModuleBuilder("env").
+			NewFunctionBuilder().WithFunc(m.opaAbort).Export("opa_abort").
+			NewFunctionBuilder().WithFunc(m.C0).Export("opa_builtin0").
+			NewFunctionBuilder().WithFunc(m.C1).Export("opa_builtin1").
+			NewFunctionBuilder().WithFunc(m.C2).Export("opa_builtin2").
+			NewFunctionBuilder().WithFunc(m.C3).Export("opa_builtin3").
+			NewFunctionBuilder().WithFunc(m.C4).Export("opa_builtin4").
+			NewFunctionBuilder().WithFunc(m.opaPrintln).Export("opa_println").
+			//Memory(). // ExportMemory("memory", uint32(opts.minMemSize)).
 			Instantiate(opts.ctx, r)
 	}
-	return r.NewModuleBuilder("env").
-		ExportFunction("opa_abort", m.opaAbort).
-		ExportFunction("opa_builtin0", m.C0).
-		ExportFunction("opa_builtin1", m.C1).
-		ExportFunction("opa_builtin2", m.C2).
-		ExportFunction("opa_builtin3", m.C3).
-		ExportFunction("opa_builtin4", m.C4).
-		ExportFunction("opa_println", m.opaPrintln).
-		ExportMemoryWithMax("memory", uint32(opts.minMemSize), uint32(opts.maxMemSize)).
-		Instantiate(opts.ctx, r)
 
+	mod, err := r.NewHostModuleBuilder("env").
+		NewFunctionBuilder().WithFunc(m.opaAbort).Export("opa_abort").
+		NewFunctionBuilder().WithFunc(m.C0).Export("opa_builtin0").
+		NewFunctionBuilder().WithFunc(m.C1).Export("opa_builtin1").
+		NewFunctionBuilder().WithFunc(m.C2).Export("opa_builtin2").
+		NewFunctionBuilder().WithFunc(m.C3).Export("opa_builtin3").
+		NewFunctionBuilder().WithFunc(m.C4).Export("opa_builtin4").
+		NewFunctionBuilder().WithFunc(m.opaPrintln).Export("opa_println").
+		//		ExportMemoryWithMax("memory", uint32(opts.minMemSize), uint32(opts.maxMemSize)).
+		Instantiate(opts.ctx, r)
+	if err != nil {
+		return nil, err
+	}
+	return mod, nil
 }
+
 func (m *Module) GetEntrypoints() map[string]int32 {
 	eLoc := m.entrypoints(m.ctx)
 	return parseJSONString(m.fromRegoJSON(eLoc))
@@ -232,21 +237,24 @@ func newModule(opts moduleOpts, r wazero.Runtime) Module {
 	if err != nil {
 		panic(err)
 	}
-	m.tCTX = &topdown.BuiltinContext{Context: context.Background(), Metrics: metrics.New(),
-		Time:  ast.NumberTerm(json.Number(strconv.FormatInt(time.Now().UnixNano(), 10))),
-		Cache: make(builtins.Cache)}
+	m.tCTX = &topdown.BuiltinContext{
+		Context: context.Background(),
+		Metrics: metrics.New(),
+		Time:    ast.NumberTerm(json.Number(strconv.FormatInt(time.Now().UnixNano(), 10))),
+		Cache:   make(builtins.Cache),
+	}
 	m.builtinT = newBuiltinTable(m)
 	m.entrypointT = m.GetEntrypoints()
 	return m
 }
 
-//reads a single byte from the shared memory buffer
+// reads a single byte from the shared memory buffer
 func (m *Module) readMemByte(offset uint32) byte {
 	data, _ := m.env.Memory().ReadByte(m.ctx, offset)
 	return data
 }
 
-//writes data to a given point in memory, grows if necessary
+// writes data to a given point in memory, grows if necessary
 func (m *Module) writeMemPlus(wAddr uint32, wData []byte, caller string) error {
 	dataLeft := (m.env.Memory().Size(m.ctx)) - wAddr
 	finPtrLoc := wAddr + uint32(len(wData))
@@ -262,7 +270,7 @@ func (m *Module) writeMemPlus(wAddr uint32, wData []byte, caller string) error {
 	return nil
 }
 
-//allocates and writes data to the shared memory buffer
+// allocates and writes data to the shared memory buffer
 func (m *Module) writeMem(data []byte) uint32 {
 	addr, err := m.malloc(m.ctx, int32(len(data)))
 	if err != nil {
@@ -273,7 +281,7 @@ func (m *Module) writeMem(data []byte) uint32 {
 	return uint32(addr)
 }
 
-//reads a null terminated string starting at the given address in the shared memory buffer
+// reads a null terminated string starting at the given address in the shared memory buffer
 func (m *Module) readStr(loc uint32) string {
 	bytes := []byte{}
 	var index uint32
@@ -303,7 +311,7 @@ func (m *Module) fromRegoJSON(addr int32) string {
 	return str
 }
 
-//Reads and returns the shared memory buffer from the given address and stops when it reaches the terminator byte or reaches the end of the buffer
+// Reads and returns the shared memory buffer from the given address and stops when it reaches the terminator byte or reaches the end of the buffer
 func (m *Module) readUntil(addr int32, terminator byte) []byte {
 	out := []byte{}
 	for i, j := addr, true; j; i++ {
@@ -316,7 +324,7 @@ func (m *Module) readUntil(addr int32, terminator byte) []byte {
 	return out
 }
 
-//reads the shared memory buffer from the given address to the end
+// reads the shared memory buffer from the given address to the end
 func (m *Module) readFrom(addr int32) []byte {
 	out := []byte{}
 	for i, j := addr, true; j; i++ {
@@ -328,9 +336,7 @@ func (m *Module) readFrom(addr int32) []byte {
 	return out
 }
 
-//
 // Expose the exported wasm functions for ease of use
-//
 func (m *Module) wasmAbiVersion() int32 {
 	return int32(m.module.ExportedGlobal("opa_wasm_abi_version").Get(m.ctx))
 }

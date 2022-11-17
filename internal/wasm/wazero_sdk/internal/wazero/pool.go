@@ -107,7 +107,7 @@ func (p *Pool) Acquire(ctx context.Context, metrics metrics.Metrics) (*VM, error
 
 	policy, parsedData, parsedDataAddr := p.policy, p.parsedData, p.parsedDataAddr
 	p.mutex.Unlock()
-	runt := (wazero.NewRuntime())
+	runt := wazero.NewRuntime(ctx)
 	vm, err := newVM(vmOpts{
 		policy:         policy,
 		data:           nil,
@@ -168,7 +168,7 @@ func (p *Pool) SetPolicyData(ctx context.Context, policy []byte, data []byte) er
 	p.mutex.Lock()
 
 	if !p.initialized {
-		runt := wazero.NewRuntime()
+		runt := wazero.NewRuntime(ctx)
 		vm, err := newVM(vmOpts{
 			policy:         policy,
 			data:           data,
