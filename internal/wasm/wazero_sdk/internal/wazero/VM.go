@@ -92,6 +92,7 @@ func newVM(opts vmOpts, runtime *wazero.Runtime) (*VM, error) {
 	}
 	return &vm, nil
 }
+
 func (i *VM) SetPolicyData(ctx context.Context, opts vmOpts) error {
 
 	if !bytes.Equal(opts.policy, i.policy) {
@@ -285,10 +286,8 @@ func (i *VM) toRegoJSON(ctx context.Context, v interface{}, free bool) (int32, e
 	return addr, nil
 }
 
-//
-//Parses the json data, writes it to the shared memory buffer and updates the baseHeapPtr and evalHeapPtr values accordingly
-//Is used when setting the policy data
-//
+// Parses the json data, writes it to the shared memory buffer and updates the baseHeapPtr and evalHeapPtr values accordingly
+// Is used when setting the policy data
 func (i *VM) toDRegoJSON(ctx context.Context, v interface{}, free bool) error {
 	var raw []byte
 	switch v := v.(type) {
@@ -335,7 +334,7 @@ func (i *VM) setHeapState(ctx context.Context, ptr int32) error {
 	return i.heapPtrSet(ctx, ptr)
 }
 
-//copies the parsed data to optimize cloning VMs
+// copies the parsed data to optimize cloning VMs
 func (i *VM) cloneDataSegment() (int32, []byte) {
 	srcData := i.module.readFrom(0)[i.baseHeapPtr:i.evalHeapPtr]
 	patchedData := make([]byte, len(srcData))

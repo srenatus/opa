@@ -250,23 +250,23 @@ func newModule(opts moduleOpts, r wazero.Runtime) Module {
 
 // reads a single byte from the shared memory buffer
 func (m *Module) readMemByte(offset uint32) byte {
-	data, _ := m.env.Memory().ReadByte(m.ctx, offset)
+	data, _ := m.module.Memory().ReadByte(m.ctx, offset)
 	return data
 }
 
 // writes data to a given point in memory, grows if necessary
 func (m *Module) writeMemPlus(wAddr uint32, wData []byte, caller string) error {
-	dataLeft := (m.env.Memory().Size(m.ctx)) - wAddr
+	dataLeft := (m.module.Memory().Size(m.ctx)) - wAddr
 	finPtrLoc := wAddr + uint32(len(wData))
-	if (m.env.Memory().Size(m.ctx)) < finPtrLoc { // need to grow memory
+	if (m.module.Memory().Size(m.ctx)) < finPtrLoc { // need to grow memory
 
 		delta := uint32(len(wData)) - dataLeft
-		_, success := m.env.Memory().Grow(m.ctx, Pages(uint32(delta)))
+		_, success := m.module.Memory().Grow(m.ctx, Pages(uint32(delta)))
 		if !success {
 			return fmt.Errorf("%s: failed to grow memory by `%d` (max pages %d)", caller, Pages(delta), m.maxMemSize)
 		}
 	}
-	m.env.Memory().Write(m.ctx, wAddr, wData)
+	m.module.Memory().Write(m.ctx, wAddr, wData)
 	return nil
 }
 
@@ -276,7 +276,7 @@ func (m *Module) writeMem(data []byte) uint32 {
 	if err != nil {
 		panic("internal_error: opa_malloc: failed")
 	}
-	m.env.Memory().Write(m.ctx, uint32(addr), data)
+	m.module.Memory().Write(m.ctx, uint32(addr), data)
 
 	return uint32(addr)
 }
@@ -315,7 +315,7 @@ func (m *Module) fromRegoJSON(addr int32) string {
 func (m *Module) readUntil(addr int32, terminator byte) []byte {
 	out := []byte{}
 	for i, j := addr, true; j; i++ {
-		_, j = m.env.Memory().Read(m.ctx, uint32(i), 1)
+		_, j = m.module.Memory().Read(m.ctx, uint32(i), 1)
 		if m.readMemByte(uint32(i)) == terminator {
 			return out
 		}
@@ -328,7 +328,7 @@ func (m *Module) readUntil(addr int32, terminator byte) []byte {
 func (m *Module) readFrom(addr int32) []byte {
 	out := []byte{}
 	for i, j := addr, true; j; i++ {
-		_, j = m.env.Memory().Read(m.ctx, 0, uint32(i))
+		_, j = m.module.Memory().Read(m.ctx, 0, uint32(i))
 		if j {
 			out = append(out, m.readMemByte(uint32(i)))
 		}
