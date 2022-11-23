@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 
 	"github.com/open-policy-agent/opa/ast"
 	"github.com/open-policy-agent/opa/internal/compiler/wasm/opa"
@@ -915,6 +916,7 @@ func (c *Compiler) emitMappingAndStartFunc() error {
 			return fmt.Errorf("mapping function %v failed", fn.Name)
 		}
 	}
+	log.Printf("mapping: %v", mapping)
 
 	// emit data segment for JSON blob encoding mapping
 	jsonMap := []byte(mapping.String())

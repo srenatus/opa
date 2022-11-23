@@ -1,6 +1,8 @@
 package planner
 
 import (
+	"fmt"
+	"log"
 	"sort"
 
 	"github.com/open-policy-agent/opa/ast"
@@ -82,7 +84,18 @@ func (t *ruletrie) Arity() int {
 
 func (t *ruletrie) Rules() []*ast.Rule {
 	if t != nil {
-		return t.rules
+		if t.rules == nil {
+			return nil
+		}
+		rules := make([]*ast.Rule, len(t.rules), len(t.rules)+len(t.children)) // could be too little
+		copy(rules, t.rules)
+		for _, rs := range t.children {
+			if r := rs[len(rs)-1].Rules(); r != nil {
+				rules = append(rules, r...)
+			}
+		}
+		log.Printf("(%v).Rules() => %v", t, rules)
+		return rules
 	}
 	return nil
 }
@@ -168,6 +181,21 @@ func (t *ruletrie) Get(k ast.Value) *ruletrie {
 		return nil
 	}
 	return nodes[len(nodes)-1]
+}
+
+func (t *ruletrie) DepthFirst(f func(*ruletrie) bool) {
+	if f(t) {
+		return
+	}
+	for _, rules := range t.children {
+		for i := range rules {
+			rules[i].DepthFirst(f)
+		}
+	}
+}
+
+func (t *ruletrie) String() string {
+	return fmt.Sprintf("<ruletrie rules:%v children:%v>", t.rules, t.children)
 }
 
 type functionMocksStack struct {

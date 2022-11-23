@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"sort"
 
 	"github.com/open-policy-agent/opa/ast"
@@ -147,17 +148,34 @@ func (p *Planner) buildFunctrie() error {
 		}
 
 		for _, rule := range module.Rules {
-			val := p.rules.LookupOrInsert(rule.Ref())
+			r := rule.Ref()
+			switch r[len(r)-1].Value.(type) {
+			case ast.String: // pass
+			default: // cut off
+				r = r[:len(r)-1]
+			}
+			val := p.rules.LookupOrInsert(r)
 			val.rules = append(val.rules, rule)
 		}
 	}
-
+	// log.Printf("%v", p.rules)
 	return nil
 }
 
 func (p *Planner) planRules(rules []*ast.Rule, cut bool) (string, error) {
 	pathRef := rules[0].Ref() // NOTE(sr): no longer the same for all those rules, respect `cut`?
 	path := pathRef.String()
+	// log.Printf("planRules(%v, cut:%v)", rules, cut)
+	// rt_debug.PrintStack()
+	cut = false // override
+	for i := range rules {
+		if r := rules[i].Ref(); !r[len(r)-1].IsGround() {
+			cut = true
+		} else if _, ok := r[len(r)-1].Value.(ast.String); !ok {
+			cut = true
+		}
+	}
+	log.Printf("cut: %v, pathRef: %v", cut, pathRef)
 
 	var pathPieces []string
 	// TODO(sr): this has to change when allowing `p[v].q.r[w]` ref rules
@@ -179,6 +197,9 @@ func (p *Planner) planRules(rules []*ast.Rule, cut bool) (string, error) {
 			pathPieces = append(pathPieces, q.String())
 		}
 	}
+
+	path = pathRef[:pieces].String()
+	log.Printf("path: %v, pathPieces: %v", path, pathPieces)
 
 	if funcName, ok := p.funcs.Get(path); ok {
 		return funcName, nil
@@ -1658,8 +1679,9 @@ func (p *Planner) planRefData(virtual *ruletrie, base *baseptr, ref ast.Ref, ind
 	// NOTE(sr): we do it on the first index because later on, the recursion
 	// on subtrees of virtual already lost parts of the path we've taken.
 	if index == 1 && virtual != nil {
-		rulesets, path, index, optimize := p.optimizeLookup(virtual, ref.GroundPrefix())
+		rulesets, path, index, optimize := p.optimizeLookup(virtual, ref)
 		if optimize {
+			log.Printf("opt/path: %v", path)
 			// If there are no rulesets in a situation that otherwise would
 			// allow for a call_indirect optimization, then there's nothing
 			// to do for this ref, except scanning the base document.
@@ -1765,25 +1787,14 @@ func (p *Planner) planRefData(virtual *ruletrie, base *baseptr, ref ast.Ref, ind
 		if virtual != nil {
 
 			vchild = virtual.Get(ref[index].Value)
-
-			for _, key := range vchild.Children() {
-				if !key.IsGround() {
-					anyKeyNonGround = true
-					break
-				}
-			}
-			if anyKeyNonGround {
-				for _, key := range vchild.Children() {
-					rules = append(rules, vchild.Get(key).Rules()...)
-				}
-			} else {
-				rules = vchild.Rules() // hit or miss
-			}
+			log.Printf("Get(ref[%d]: %v) => vchild: %v", index, ref[index], vchild)
+			rules = vchild.Rules() // hit or miss
 		}
 
 		if len(rules) > 0 {
 			p.ltarget = p.newOperand()
 
+			log.Printf("planRules(%v, anyKeyNonGround: %v), index:%d", rules, anyKeyNonGround, index)
 			funcName, err := p.planRules(rules, anyKeyNonGround)
 			if err != nil {
 				return err
