@@ -1030,3 +1030,110 @@ func TestOptimizeLookup(t *testing.T) {
 		}
 	})
 }
+
+func TestPlannerCallDynamic(t *testing.T) {
+	// funcs := func(p *ir.Policy) interface{} {
+	// 	return p.Funcs
+	// }
+
+	tests := []struct {
+		note    string
+		queries []string
+		modules []string
+		path    []interface{}                // path expected on irCallDynamicStmt, string => string const, int => local
+		where   func(*ir.Policy) interface{} // where to start walking search for `exps`
+	}{
+		{
+			note:    "CallDynamicStmt optimization",
+			queries: []string{`x := "a"; data.test[x] = y`},
+			modules: []string{`package test
+a {
+  true
+}`},
+			path: []interface{}{"g0", "test", 2},
+		},
+		{
+			note:    "CallDynamicStmt optimization, simple single-val ref head",
+			queries: []string{`x := "a"; data.test.a[x].c = y`},
+			modules: []string{`package test
+a.b.c = 1 {
+  true
+}`},
+			path: []interface{}{"g0", "test", "a", 2, "c"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.note, func(t *testing.T) {
+			queries := make([]ast.Body, len(tc.queries))
+			for i := range queries {
+				queries[i] = ast.MustParseBody(tc.queries[i])
+			}
+			modules := make([]*ast.Module, len(tc.modules))
+			for i := range modules {
+				file := fmt.Sprintf("module-%d.rego", i)
+				m, err := ast.ParseModule(file, tc.modules[i])
+				if err != nil {
+					t.Fatal(err)
+				}
+				modules[i] = m
+			}
+			planner := New().WithQueries([]QuerySet{
+				{
+					Name:    "test",
+					Queries: queries,
+				},
+			}).WithModules(modules).WithBuiltinDecls(ast.BuiltinMap)
+			policy, err := planner.Plan()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if testing.Verbose() {
+				err = ir.Pretty(os.Stderr, policy)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			start := interface{}(policy)
+			if tc.where != nil {
+				start = tc.where(policy)
+			}
+			exp := make([]ir.Operand, len(tc.path))
+			for i := range tc.path {
+				switch x := tc.path[i].(type) {
+				case string:
+					exp[i] = op(ir.StringIndex(planner.getStringConst(x)))
+				case int:
+					exp[i] = op(ir.Local(x))
+				}
+			}
+			if err := findCallDynamic(exp, start); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+}
+
+type callDynamicCmpWalker struct {
+	path  []ir.Operand
+	found bool // stop comparing after first found needle
+}
+
+func (*callDynamicCmpWalker) Before(interface{}) {}
+func (*callDynamicCmpWalker) After(interface{})  {}
+func (f *callDynamicCmpWalker) Visit(x interface{}) (ir.Visitor, error) {
+	if !f.found {
+		c, ok := x.(*ir.CallDynamicStmt)
+		if ok {
+			f.found = true
+			if !reflect.DeepEqual(f.path, c.Path) {
+				return nil, fmt.Errorf("expected path %v, got %v", f.path, c.Path)
+			}
+		}
+	}
+	return f, nil
+}
+
+func findCallDynamic(path []ir.Operand, p interface{}) error {
+	return ir.Walk(&callDynamicCmpWalker{path: path}, p)
+}
