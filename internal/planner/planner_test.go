@@ -433,7 +433,7 @@ func findInPolicy(needle interface{}, loc string, p interface{}) error {
 }
 
 // Assert some selected statements' location mappings. Note that for debugging,
-// it's worthwhile to no use tabs in the multi-line strings, as they may be
+// it's worthwhile to not use tabs in the multi-line strings, as they may be
 // counted differently in the editor vs. in code.
 func TestPlannerLocations(t *testing.T) {
 
@@ -730,14 +730,20 @@ func ref(r string) ast.Ref {
 }
 
 func TestOptimizeLookup(t *testing.T) {
-	r0, r1, r2 := ast.Rule{}, ast.Rule{}, ast.Rule{}
+	r0, r1, r2 := ast.MustParseRule("p = 0 { true }"), ast.MustParseRule("p = 1 { true }"), ast.MustParseRule("p = 2 { true }")
+	planner := func() *Planner {
+		if testing.Verbose() {
+			return New().WithDebug(os.Stderr)
+		}
+		return New()
+	}
 
 	t.Run("seen variable (last), one ruleset", func(t *testing.T) {
 		r := newRuletrie()
 		val := r.LookupOrInsert(ref("foo.bar"))
-		val.rules = append(val.rules, &r0, &r1, &r2)
+		val.rules = append(val.rules, r0, r1, r2)
 
-		p := New()
+		p := planner()
 		l := p.newLocal()
 		p.vars.Put(ast.Var("x"), l)
 
@@ -770,9 +776,9 @@ func TestOptimizeLookup(t *testing.T) {
 	t.Run("ref shorter than ruletrie depth", func(t *testing.T) {
 		r := newRuletrie()
 		val := r.LookupOrInsert(ref("foo.bar.baz"))
-		val.rules = append(val.rules, &r0, &r1, &r2)
+		val.rules = append(val.rules, r0, r1, r2)
 
-		p := New()
+		p := planner().WithDebug(os.Stderr)
 		l := p.newLocal()
 		p.vars.Put(ast.Var("x"), l)
 
@@ -785,11 +791,11 @@ func TestOptimizeLookup(t *testing.T) {
 	t.Run("seen variable (last), multiple rulesets", func(t *testing.T) {
 		r := newRuletrie()
 		val := r.LookupOrInsert(ref("foo.bar"))
-		val.rules = append(val.rules, &r0, &r1)
+		val.rules = append(val.rules, r0, r1)
 		val = r.LookupOrInsert(ref("foo.baz"))
-		val.rules = append(val.rules, &r2)
+		val.rules = append(val.rules, r2)
 
-		p := New()
+		p := planner()
 		p.vars.Put(ast.Var("x"), p.newLocal())
 
 		rulesets, _, _, opt := p.optimizeLookup(r, ast.MustParseRef("data.foo[x]"))
@@ -810,9 +816,9 @@ func TestOptimizeLookup(t *testing.T) {
 	t.Run("unseen variable (last)", func(t *testing.T) {
 		r := newRuletrie()
 		val := r.LookupOrInsert(ref("foo.bar"))
-		val.rules = append(val.rules, &r0, &r1, &r2)
+		val.rules = append(val.rules, r0, r1, r2)
 
-		p := New()
+		p := planner()
 
 		_, _, _, opt := p.optimizeLookup(r, ast.MustParseRef("data.foo[x]"))
 		if exp, act := false, opt; exp != act {
@@ -823,9 +829,9 @@ func TestOptimizeLookup(t *testing.T) {
 	t.Run("all ground refs", func(t *testing.T) {
 		r := newRuletrie()
 		val := r.LookupOrInsert(ref("foo.bar.baz"))
-		val.rules = append(val.rules, &r0, &r1, &r2)
+		val.rules = append(val.rules, r0, r1, r2)
 
-		p := New()
+		p := planner()
 
 		_, _, _, opt := p.optimizeLookup(r, ast.MustParseRef("data.foo.bar.baz"))
 		if exp, act := false, opt; exp != act {
@@ -836,9 +842,9 @@ func TestOptimizeLookup(t *testing.T) {
 	t.Run("multiple seen vars, one rule set", func(t *testing.T) {
 		r := newRuletrie()
 		val := r.LookupOrInsert(ref("foo.aaa.bar.bbb.q"))
-		val.rules = append(val.rules, &r0, &r1, &r2)
+		val.rules = append(val.rules, r0, r1, r2)
 
-		p := New()
+		p := planner()
 		lx, ly := p.newLocal(), p.newLocal()
 		p.vars.Put(ast.Var("x"), lx)
 		p.vars.Put(ast.Var("y"), ly)
@@ -865,9 +871,9 @@ func TestOptimizeLookup(t *testing.T) {
 	t.Run("one seen var, one unseen, one rule set", func(t *testing.T) {
 		r := newRuletrie()
 		val := r.LookupOrInsert(ref("foo.aaa.bar.bbb.q"))
-		val.rules = append(val.rules, &r0, &r1, &r2)
+		val.rules = append(val.rules, r0, r1, r2)
 
-		p := New()
+		p := planner()
 		p.vars.Put(ast.Var("x"), p.newLocal())
 
 		_, _, _, opt := p.optimizeLookup(r, ast.MustParseRef("data.foo[x].bar[y].q"))
@@ -879,11 +885,11 @@ func TestOptimizeLookup(t *testing.T) {
 	t.Run("one seen var, one rule set and children left", func(t *testing.T) {
 		r := newRuletrie()
 		val := r.LookupOrInsert(ref("foo.aaa.bar.bbb.q"))
-		val.rules = append(val.rules, &r0)
+		val.rules = append(val.rules, r0)
 		val = r.LookupOrInsert(ref("foo.ccc.bar"))
-		val.rules = append(val.rules, &r1, &r2)
+		val.rules = append(val.rules, r1, r2)
 
-		p := New()
+		p := planner()
 		p.vars.Put(ast.Var("x"), p.newLocal())
 
 		_, _, _, opt := p.optimizeLookup(r, ast.MustParseRef("data.foo[x].bar"))
@@ -895,9 +901,9 @@ func TestOptimizeLookup(t *testing.T) {
 	t.Run("ref goes into the rules' result", func(t *testing.T) {
 		r := newRuletrie()
 		val := r.LookupOrInsert(ref("foo.aaa.bar.q"))
-		val.rules = append(val.rules, &r0, &r1, &r2)
+		val.rules = append(val.rules, r0, r1, r2)
 
-		p := New()
+		p := planner()
 		p.vars.Put(ast.Var("x"), p.newLocal())
 
 		rulesets, path, index, opt := p.optimizeLookup(r, ast.MustParseRef("data.foo[x].bar.q.p.r"))
@@ -922,10 +928,10 @@ func TestOptimizeLookup(t *testing.T) {
 	t.Run("one leaf without rules", func(t *testing.T) {
 		r := newRuletrie()
 		val := r.LookupOrInsert(ref("foo.aaa.bar.q"))
-		val.rules = append(val.rules, &r0, &r1)
+		val.rules = append(val.rules, r0, r1)
 		r.LookupOrInsert(ref("foo.bbb.bar.q"))
 
-		p := New()
+		p := planner()
 		p.vars.Put(ast.Var("x"), p.newLocal())
 
 		rulesets, _, index, opt := p.optimizeLookup(r, ast.MustParseRef("data.foo[x].bar.q"))
@@ -948,7 +954,7 @@ func TestOptimizeLookup(t *testing.T) {
 		r.LookupOrInsert(ref("foo.aaa.bar.q"))
 		r.LookupOrInsert(ref("foo.bbb.bar.q"))
 
-		p := New()
+		p := planner()
 		p.vars.Put(ast.Var("x"), p.newLocal())
 
 		rulesets, _, _, opt := p.optimizeLookup(r, ast.MustParseRef("data.foo[x].bar.q"))
@@ -957,6 +963,70 @@ func TestOptimizeLookup(t *testing.T) {
 		}
 		if exp, act := 0, len(rulesets); exp != act {
 			t.Fatalf("expected %d rulesets, got %d\n", exp, act)
+		}
+	})
+
+	t.Run("ref heads, mixed case: string and var last term", func(t *testing.T) {
+		r0, r1 := ast.MustParseRule("b.q.s = 1 { true }"), ast.MustParseRule(`b.q[x] = 2 { x = "t" }`)
+		r := newRuletrie()
+		val := r.LookupOrInsert(ref("a.b.q.s")) // b.q.s = 1 (package a)
+		val.rules = append(val.rules, r0)
+		val = r.LookupOrInsert(ref("a.b.q")) // b.q[x] = 2
+		val.rules = append(val.rules, r1)
+
+		rules := r.Lookup(ref("a.b.q")).Rules()
+		if exp, act := 2, len(rules); exp != act {
+			t.Fatalf("ruletrie: expected %d rules, got %d", exp, act)
+		}
+		if testing.Verbose() {
+			t.Logf("rules: %v", r)
+		}
+
+		p := planner()
+		p.vars.Put(ast.Var("x"), p.newLocal())
+		rulesets, _, _, opt := p.optimizeLookup(r, ast.MustParseRef("data.a[x].q"))
+
+		if exp, act := true, opt; exp != act {
+			t.Errorf("expected 'optimize' %v, got %v\n", exp, act)
+		}
+		if exp, act := 1, len(rulesets); exp != act {
+			t.Fatalf("expected %d rulesets, got %d\n", exp, act)
+		}
+
+		if exp, act := 2, len(rulesets[0]); exp != act {
+			t.Fatalf("expected %d rules in ruleset[0], got %d\n", exp, act)
+		}
+	})
+
+	t.Run("ref heads, mixed case: string and number last term", func(t *testing.T) {
+		r0, r1 := ast.MustParseRule("b.q[1] = 1 { true }"), ast.MustParseRule(`b.q[x] = 2 { x = "t" }`)
+		r := newRuletrie()
+		val := r.LookupOrInsert(ref("a.b.q")) // b.q[1] = 1 (package a)
+		val.rules = append(val.rules, r0)
+		val = r.LookupOrInsert(ref("a.b.q")) // b.q[x] = 2
+		val.rules = append(val.rules, r1)
+
+		rules := r.Lookup(ref("a.b.q")).Rules()
+		if exp, act := 2, len(rules); exp != act {
+			t.Fatalf("ruletrie: expected %d rules, got %d", exp, act)
+		}
+		if testing.Verbose() {
+			t.Logf("rules: %v", r)
+		}
+
+		p := planner()
+		p.vars.Put(ast.Var("x"), p.newLocal())
+		rulesets, _, _, opt := p.optimizeLookup(r, ast.MustParseRef("data.a[x].q"))
+
+		if exp, act := true, opt; exp != act {
+			t.Errorf("expected 'optimize' %v, got %v\n", exp, act)
+		}
+		if exp, act := 1, len(rulesets); exp != act {
+			t.Fatalf("expected %d rulesets, got %d\n", exp, act)
+		}
+
+		if exp, act := 2, len(rulesets[0]); exp != act {
+			t.Fatalf("expected %d rules in ruleset[0], got %d\n", exp, act)
 		}
 	})
 }

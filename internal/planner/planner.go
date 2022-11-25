@@ -158,7 +158,6 @@ func (p *Planner) buildFunctrie() error {
 			val.rules = append(val.rules, rule)
 		}
 	}
-	// log.Printf("%v", p.rules)
 	return nil
 }
 
@@ -2328,7 +2327,7 @@ func (p *Planner) optimizeLookup(t *ruletrie, ref ast.Ref) ([][]*ast.Rule, []ir.
 	for _, node := range nodes {
 		// we're done with ref, check if there's only ruleset leaves; collect rules
 		if index == len(ref)-1 {
-			if len(node.Children()) > 0 {
+			if len(node.Rules()) == 0 && len(node.Children()) > 0 {
 				p.debugf("no optimization of %s: unbalanced ruletrie", ref)
 				return dont()
 			}

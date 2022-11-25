@@ -90,7 +90,25 @@ func (t *ruletrie) Rules() []*ast.Rule {
 		rules := make([]*ast.Rule, len(t.rules), len(t.rules)+len(t.children)) // could be too little
 		copy(rules, t.rules)
 		for _, rs := range t.children {
-			if r := rs[len(rs)-1].Rules(); r != nil {
+			if r := rs[len(rs)-1].rules; r != nil {
+				rules = append(rules, r...)
+			}
+		}
+		log.Printf("(%v).Rules() => %v", t, rules)
+		return rules
+	}
+	return nil
+}
+
+func (t *ruletrie) AllRules() []*ast.Rule {
+	if t != nil {
+		if t.rules == nil {
+			return nil
+		}
+		rules := make([]*ast.Rule, len(t.rules), len(t.rules)+len(t.children)) // could be too little
+		copy(rules, t.rules)
+		for _, rs := range t.children {
+			if r := rs[len(rs)-1].AllRules(); r != nil {
 				rules = append(rules, r...)
 			}
 		}
@@ -192,6 +210,23 @@ func (t *ruletrie) DepthFirst(f func(*ruletrie) bool) {
 			rules[i].DepthFirst(f)
 		}
 	}
+}
+
+func (t *ruletrie) Depth() int {
+	if len(t.Children()) == 0 {
+		return 0
+	}
+	c := make([]int, 0, len(t.Children()))
+	for _, nodes := range t.children {
+		c = append(c, nodes[len(nodes)-1].Depth())
+	}
+	max := 0
+	for i := range c {
+		if max < c[i] {
+			max = c[i]
+		}
+	}
+	return max + 1
 }
 
 func (t *ruletrie) String() string {
