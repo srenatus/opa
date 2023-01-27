@@ -177,6 +177,14 @@ func TestBaseDocEqIndexing(t *testing.T) {
 		input.x = 0
 	}
 
+	# https://github.com/open-policy-agent/opa/issues/5585
+	number_with_dot {
+		input.i = 1.0
+	}
+	number_with_dot {
+		input.i = 1
+	}
+
 	glob_match {
 		x = input.x
 		glob.match("foo:*:bar", [":"], x)
@@ -423,6 +431,18 @@ func TestBaseDocEqIndexing(t *testing.T) {
 				input.y = [1,2,3]
 				input.z = 1
 			}`))),
+		},
+		{
+			note:       "number: 1.0 vs 1, input has dot",
+			ruleset:    "number_with_dot",
+			input:      `{"i": 1.0}`,
+			expectedRS: module.RuleSet(Var("number_with_dot")), // all of them
+		},
+		{
+			note:       "number: 1.0 vs 1, input has no dot",
+			ruleset:    "number_with_dot",
+			input:      `{"i": 1}`,
+			expectedRS: module.RuleSet(Var("number_with_dot")), // all of them
 		},
 		{
 			note:    "glob.match",
