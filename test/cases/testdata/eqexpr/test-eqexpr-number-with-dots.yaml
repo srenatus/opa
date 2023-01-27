@@ -1,0 +1,10 @@
+cases:
+- input: {"oneDotZero": 1.0}
+  modules:
+  - |
+    package test
+    p { input.oneDotZero == 1.0 }
+  note: "eqexpr/indexing: 1.0 is treated as 1" # https://github.com/open-policy-agent/opa/issues/5585
+  query: data.test.p = x
+  want_result:
+  - x: true
