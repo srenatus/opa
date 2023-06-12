@@ -1774,7 +1774,7 @@ bundle:
 	if p == nil {
 		t.Fatal("Unable to find bundle plugin on manager")
 	}
-	bp := p.(*bundlePlugin.Plugin)
+	bp := p.(bundlePlugin.Plugin)
 
 	// make sure the older style `bundle` config takes precedence
 	if bp.Config().Name != "bundle-classic" {
@@ -1811,7 +1811,7 @@ bundles:
 	if p == nil {
 		t.Fatal("Unable to find bundle plugin on manager")
 	}
-	bp := p.(*bundlePlugin.Plugin)
+	bp := p.(bundlePlugin.Plugin)
 
 	if len(bp.Config().Bundles) != 1 {
 		t.Fatal("Expected a single bundle configured")

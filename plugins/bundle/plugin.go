@@ -50,8 +50,7 @@ type Loader interface {
 	ClearCache()
 }
 
-// Plugin implements bundle activation.
-type Plugin struct {
+type plugin struct {
 	config            Config
 	manager           *plugins.Manager                         // plugin manager for storage and service clients
 	status            map[string]*Status                       // current status for each bundle
@@ -67,8 +66,25 @@ type Plugin struct {
 	stopped           bool
 }
 
+// Plugin implements bundle activation.
+type Plugin interface {
+	Config() *Config
+	Register(name any, listener func(Status))
+	Unregister(name any)
+	RegisterBulkListener(name any, listener func(map[string]*Status))
+	UnregisterBulkListener(name any)
+
+	plugins.Plugin
+}
+
+var _ Plugin = (*plugin)(nil)
+
 // New returns a new Plugin with the given config.
-func New(parsedConfig *Config, manager *plugins.Manager) *Plugin {
+func New(parsedConfig *Config, manager *plugins.Manager) Plugin {
+	return newInternal(parsedConfig, manager)
+}
+
+func newInternal(parsedConfig *Config, manager *plugins.Manager) *plugin {
 	initialStatus := map[string]*Status{}
 	for name := range parsedConfig.Bundles {
 		initialStatus[name] = &Status{
@@ -76,7 +92,7 @@ func New(parsedConfig *Config, manager *plugins.Manager) *Plugin {
 		}
 	}
 
-	p := &Plugin{
+	p := &plugin{
 		manager:     manager,
 		config:      *parsedConfig,
 		status:      initialStatus,
@@ -94,9 +110,9 @@ func New(parsedConfig *Config, manager *plugins.Manager) *Plugin {
 const Name = "bundle"
 
 // Lookup returns the bundle plugin registered with the manager.
-func Lookup(manager *plugins.Manager) *Plugin {
+func Lookup(manager *plugins.Manager) Plugin {
 	if p := manager.Plugin(Name); p != nil {
-		return p.(*Plugin)
+		return p.(Plugin)
 	}
 	return nil
 }
@@ -104,7 +120,7 @@ func Lookup(manager *plugins.Manager) *Plugin {
 // Start runs the plugin. The plugin will periodically try to download bundles
 // from the configured service. When a new bundle is downloaded, the data and
 // policies are extracted and inserted into storage.
-func (p *Plugin) Start(ctx context.Context) error {
+func (p *plugin) Start(ctx context.Context) error {
 	p.mtx.Lock()
 	defer p.mtx.Unlock()
 
@@ -126,7 +142,7 @@ func (p *Plugin) Start(ctx context.Context) error {
 }
 
 // Stop stops the plugin.
-func (p *Plugin) Stop(ctx context.Context) {
+func (p *plugin) Stop(ctx context.Context) {
 	p.mtx.Lock()
 	stopDownloaders := map[string]Loader{}
 	for name, dl := range p.downloaders {
@@ -145,7 +161,7 @@ func (p *Plugin) Stop(ctx context.Context) {
 // Reconfigure notifies the plugin that it's configuration has changed.
 // Any bundle configs that have changed or been added/removed will take
 // affect.
-func (p *Plugin) Reconfigure(ctx context.Context, config interface{}) {
+func (p *plugin) Reconfigure(ctx context.Context, config interface{}) {
 	// Reconfiguring should not occur in parallel, lock to ensure
 	// nothing swaps underneath us with the current p.config and the updated one.
 	// Use p.cfgMtx instead of p.mtx so as to not block any bundle downloads/activations
@@ -245,12 +261,12 @@ func (p *Plugin) Reconfigure(ctx context.Context, config interface{}) {
 }
 
 // Loaders returns the map of bundle loaders configured on this plugin.
-func (p *Plugin) Loaders() map[string]Loader {
+func (p *plugin) Loaders() map[string]Loader {
 	return p.downloaders
 }
 
 // Trigger triggers a bundle download on all configured bundles.
-func (p *Plugin) Trigger(ctx context.Context) error {
+func (p *plugin) Trigger(ctx context.Context) error {
 	p.mtx.Lock()
 	downloaders := map[string]Loader{}
 	for name, dl := range p.downloaders {
@@ -268,7 +284,7 @@ func (p *Plugin) Trigger(ctx context.Context) error {
 // Register a listener to receive status updates. The name must be comparable.
 // The listener will receive a status update for each bundle configured, they are
 // not going to be aggregated. For all status updates use `RegisterBulkListener`.
-func (p *Plugin) Register(name interface{}, listener func(Status)) {
+func (p *plugin) Register(name interface{}, listener func(Status)) {
 	p.mtx.Lock()
 	defer p.mtx.Unlock()
 
@@ -280,7 +296,7 @@ func (p *Plugin) Register(name interface{}, listener func(Status)) {
 }
 
 // Unregister a listener to stop receiving status updates.
-func (p *Plugin) Unregister(name interface{}) {
+func (p *plugin) Unregister(name interface{}) {
 	p.mtx.Lock()
 	defer p.mtx.Unlock()
 
@@ -288,7 +304,7 @@ func (p *Plugin) Unregister(name interface{}) {
 }
 
 // RegisterBulkListener registers a listener to receive bulk (aggregated) status updates. The name must be comparable.
-func (p *Plugin) RegisterBulkListener(name interface{}, listener func(map[string]*Status)) {
+func (p *plugin) RegisterBulkListener(name interface{}, listener func(map[string]*Status)) {
 	p.mtx.Lock()
 	defer p.mtx.Unlock()
 
@@ -300,7 +316,7 @@ func (p *Plugin) RegisterBulkListener(name interface{}, listener func(map[string
 }
 
 // UnregisterBulkListener unregisters a listener to stop receiving aggregated status updates.
-func (p *Plugin) UnregisterBulkListener(name interface{}) {
+func (p *plugin) UnregisterBulkListener(name interface{}) {
 	p.mtx.Lock()
 	defer p.mtx.Unlock()
 
@@ -308,11 +324,11 @@ func (p *Plugin) UnregisterBulkListener(name interface{}) {
 }
 
 // Config returns the plugins current configuration
-func (p *Plugin) Config() *Config {
+func (p *plugin) Config() *Config {
 	return &p.config
 }
 
-func (p *Plugin) initDownloaders(ctx context.Context) {
+func (p *plugin) initDownloaders(ctx context.Context) {
 
 	// Initialize a downloader for each bundle configured.
 	for name, source := range p.config.Bundles {
@@ -326,7 +342,7 @@ func (p *Plugin) initDownloaders(ctx context.Context) {
 	}
 }
 
-func (p *Plugin) readBundleEtagFromStore(ctx context.Context, name string) string {
+func (p *plugin) readBundleEtagFromStore(ctx context.Context, name string) string {
 	var etag string
 	err := storage.Txn(ctx, p.manager.Store, storage.TransactionParams{}, func(txn storage.Transaction) error {
 		var loadErr error
@@ -346,7 +362,7 @@ func (p *Plugin) readBundleEtagFromStore(ctx context.Context, name string) strin
 	return etag
 }
 
-func (p *Plugin) loadAndActivateBundlesFromDisk(ctx context.Context) {
+func (p *plugin) loadAndActivateBundlesFromDisk(ctx context.Context) {
 
 	persistedBundles := map[string]*bundle.Bundle{}
 
@@ -400,7 +416,7 @@ func (p *Plugin) loadAndActivateBundlesFromDisk(ctx context.Context) {
 	}
 }
 
-func (p *Plugin) newDownloader(name string, source *Source) Loader {
+func (p *plugin) newDownloader(name string, source *Source) Loader {
 
 	if u, err := url.Parse(source.Resource); err == nil {
 		switch u.Scheme {
@@ -441,7 +457,7 @@ func (p *Plugin) newDownloader(name string, source *Source) Loader {
 		WithLazyLoadingMode(true).WithBundleName(name)
 }
 
-func (p *Plugin) oneShot(ctx context.Context, name string, u download.Update) {
+func (p *plugin) oneShot(ctx context.Context, name string, u download.Update) {
 	p.mtx.Lock()
 	defer p.mtx.Unlock()
 
@@ -465,7 +481,7 @@ func (p *Plugin) oneShot(ctx context.Context, name string, u download.Update) {
 	}
 }
 
-func (p *Plugin) process(ctx context.Context, name string, u download.Update) {
+func (p *plugin) process(ctx context.Context, name string, u download.Update) {
 
 	if u.Metrics != nil {
 		p.status[name].Metrics = u.Metrics
@@ -543,7 +559,7 @@ func (p *Plugin) process(ctx context.Context, name string, u download.Update) {
 	}
 }
 
-func (p *Plugin) checkPluginReadiness() {
+func (p *plugin) checkPluginReadiness() {
 	if !p.ready {
 		readyNow := true // optimistically
 		for _, status := range p.status {
@@ -560,7 +576,7 @@ func (p *Plugin) checkPluginReadiness() {
 	}
 }
 
-func (p *Plugin) activate(ctx context.Context, name string, b *bundle.Bundle) error {
+func (p *plugin) activate(ctx context.Context, name string, b *bundle.Bundle) error {
 	p.log(name).Debug("Bundle activation in progress (%v). Opening storage transaction.", b.Manifest.Revision)
 
 	params := storage.WriteParams
@@ -619,7 +635,7 @@ func (p *Plugin) activate(ctx context.Context, name string, b *bundle.Bundle) er
 	return err
 }
 
-func (p *Plugin) persistBundle(name string) bool {
+func (p *plugin) persistBundle(name string) bool {
 	bundleSrc := p.config.Bundles[name]
 
 	if bundleSrc == nil {
@@ -629,7 +645,7 @@ func (p *Plugin) persistBundle(name string) bool {
 }
 
 // configDelta will return a map of new bundle sources, updated bundle sources, and a set of deleted bundle names
-func (p *Plugin) configDelta(newConfig *Config) (map[string]*Source, map[string]*Source, map[string]struct{}) {
+func (p *plugin) configDelta(newConfig *Config) (map[string]*Source, map[string]*Source, map[string]struct{}) {
 	deletedBundles := map[string]struct{}{}
 	for name := range p.config.Bundles {
 		deletedBundles[name] = struct{}{}
@@ -651,7 +667,7 @@ func (p *Plugin) configDelta(newConfig *Config) (map[string]*Source, map[string]
 	return newBundles, updatedBundles, deletedBundles
 }
 
-func (p *Plugin) saveBundleToDisk(name string, raw io.Reader) error {
+func (p *plugin) saveBundleToDisk(name string, raw io.Reader) error {
 
 	bundleDir := filepath.Join(p.bundlePersistPath, name)
 	bundleFile := filepath.Join(bundleDir, "bundle.tar.gz")
@@ -685,14 +701,14 @@ func loadBundleFromDisk(path, name string, src *Source) (*bundle.Bundle, error) 
 	return bundleUtils.LoadBundleFromDisk(path, name, nil)
 }
 
-func (p *Plugin) log(name string) logging.Logger {
+func (p *plugin) log(name string) logging.Logger {
 	if p.logger == nil {
 		p.logger = logging.Get()
 	}
 	return p.logger.WithFields(map[string]interface{}{"name": name, "plugin": Name})
 }
 
-func (p *Plugin) getBundlePersistPath() (string, error) {
+func (p *plugin) getBundlePersistPath() (string, error) {
 	persistDir, err := p.manager.Config.GetPersistenceDirectory()
 	if err != nil {
 		return "", err

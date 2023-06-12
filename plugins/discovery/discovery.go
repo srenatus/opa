@@ -583,7 +583,7 @@ func getPluginSet(factories map[string]plugins.Factory, manager *plugins.Manager
 	return result, nil
 }
 
-func getBundlePlugin(m *plugins.Manager, config *bundle.Config) (plugin *bundle.Plugin, created bool) {
+func getBundlePlugin(m *plugins.Manager, config *bundle.Config) (plugin bundle.Plugin, created bool) {
 	plugin = bundle.Lookup(m)
 	if plugin == nil {
 		plugin = bundle.New(config, m)

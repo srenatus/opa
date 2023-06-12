@@ -47,7 +47,7 @@ func TestPluginOneShot(t *testing.T) {
 
 	ctx := context.Background()
 	manager := getTestManager()
-	plugin := New(&Config{}, manager)
+	plugin := newInternal(&Config{}, manager)
 	bundleName := "test-bundle"
 	plugin.status[bundleName] = &Status{Name: bundleName, Metrics: metrics.New()}
 	plugin.downloaders[bundleName] = download.New(download.Config{}, plugin.manager.Client(""), bundleName)
@@ -169,7 +169,7 @@ func TestPluginStartLazyLoadInMem(t *testing.T) {
 
 	var mode plugins.TriggerMode = "manual"
 
-	plugin := New(&Config{
+	plugin := newInternal(&Config{
 		Bundles: map[string]*Source{
 			"test-1": {
 				Service:        "default",
@@ -266,7 +266,7 @@ func TestPluginOneShotDiskStorageMetrics(t *testing.T) {
 		}
 		manager := getTestManagerWithOpts(nil, store)
 		defer manager.Stop(ctx)
-		plugin := New(&Config{}, manager)
+		plugin := newInternal(&Config{}, manager)
 		bundleName := "test-bundle"
 		plugin.status[bundleName] = &Status{Name: bundleName, Metrics: met}
 		plugin.downloaders[bundleName] = download.New(download.Config{}, plugin.manager.Client(""), bundleName)
@@ -359,7 +359,7 @@ func TestPluginOneShotDeltaBundle(t *testing.T) {
 
 	ctx := context.Background()
 	manager := getTestManager()
-	plugin := New(&Config{}, manager)
+	plugin := newInternal(&Config{}, manager)
 	bundleName := "test-bundle"
 	plugin.status[bundleName] = &Status{Name: bundleName, Metrics: metrics.New()}
 	plugin.downloaders[bundleName] = download.New(download.Config{}, plugin.manager.Client(""), bundleName)
@@ -458,7 +458,7 @@ func TestPluginStart(t *testing.T) {
 	manager := getTestManager()
 	bundles := map[string]*Source{}
 
-	plugin := New(&Config{Bundles: bundles}, manager)
+	plugin := newInternal(&Config{Bundles: bundles}, manager)
 	err := plugin.Start(ctx)
 	if err != nil {
 		t.Fatal("unexpected error:", err)
@@ -497,7 +497,7 @@ func TestStop(t *testing.T) {
 	triggerPolling := plugins.TriggerPeriodic
 	baseConf := download.Config{Polling: download.PollingConfig{LongPollingTimeoutSeconds: &longPollTimeout}, Trigger: &triggerPolling}
 
-	plugin := Plugin{
+	plugin := plugin{
 		manager:     manager,
 		status:      map[string]*Status{},
 		etags:       map[string]string{},
@@ -545,7 +545,7 @@ func TestPluginOneShotBundlePersistence(t *testing.T) {
 	bundles := map[string]*Source{}
 	bundles[bundleName] = &bundleSource
 
-	plugin := New(&Config{Bundles: bundles}, manager)
+	plugin := newInternal(&Config{Bundles: bundles}, manager)
 
 	plugin.status[bundleName] = &Status{Name: bundleName, Metrics: metrics.New()}
 	plugin.downloaders[bundleName] = download.New(download.Config{}, plugin.manager.Client(""), bundleName)
@@ -648,7 +648,7 @@ func TestPluginOneShotSignedBundlePersistence(t *testing.T) {
 	bundles := map[string]*Source{}
 	bundles[bundleName] = &bundleSource
 
-	plugin := New(&Config{Bundles: bundles}, manager)
+	plugin := newInternal(&Config{Bundles: bundles}, manager)
 
 	plugin.status[bundleName] = &Status{Name: bundleName, Metrics: metrics.New()}
 	plugin.downloaders[bundleName] = download.New(download.Config{}, plugin.manager.Client(""), bundleName)
@@ -746,7 +746,7 @@ func TestLoadAndActivateBundlesFromDisk(t *testing.T) {
 	bundles[bundleName] = &bundleSource
 	bundles[bundleNameOther] = &bundleSourceOther
 
-	plugin := New(&Config{Bundles: bundles}, manager)
+	plugin := newInternal(&Config{Bundles: bundles}, manager)
 	plugin.bundlePersistPath = filepath.Join(dir, ".opa")
 
 	plugin.loadAndActivateBundlesFromDisk(ctx)
@@ -828,7 +828,7 @@ func TestLoadAndActivateDepBundlesFromDisk(t *testing.T) {
 	bundles[bundleName] = &bundleSource
 	bundles[bundleNameOther] = &bundleSourceOther
 
-	plugin := New(&Config{Bundles: bundles}, manager)
+	plugin := newInternal(&Config{Bundles: bundles}, manager)
 	plugin.bundlePersistPath = filepath.Join(dir, ".opa")
 
 	module1 := `
@@ -926,7 +926,7 @@ func TestLoadAndActivateDepBundlesFromDiskMaxAttempts(t *testing.T) {
 	bundles := map[string]*Source{}
 	bundles[bundleName] = &bundleSource
 
-	plugin := New(&Config{Bundles: bundles}, manager)
+	plugin := newInternal(&Config{Bundles: bundles}, manager)
 	plugin.bundlePersistPath = filepath.Join(dir, ".opa")
 
 	module := `
@@ -982,7 +982,7 @@ func TestPluginOneShotCompileError(t *testing.T) {
 
 	ctx := context.Background()
 	manager := getTestManager()
-	plugin := New(&Config{}, manager)
+	plugin := newInternal(&Config{}, manager)
 	bundleName := "test-bundle"
 	plugin.status[bundleName] = &Status{Name: bundleName}
 	plugin.downloaders[bundleName] = download.New(download.Config{}, plugin.manager.Client(""), bundleName)
@@ -1068,7 +1068,7 @@ func TestPluginOneShotCompileError(t *testing.T) {
 func TestPluginOneShotHTTPError(t *testing.T) {
 	ctx := context.Background()
 	manager := getTestManager()
-	plugin := New(&Config{}, manager)
+	plugin := newInternal(&Config{}, manager)
 	bundleName := "test-bundle"
 	plugin.status[bundleName] = &Status{Name: bundleName}
 	plugin.downloaders[bundleName] = download.New(download.Config{}, plugin.manager.Client(""), bundleName)
@@ -1108,7 +1108,7 @@ func TestPluginOneShotActivationRemovesOld(t *testing.T) {
 
 	ctx := context.Background()
 	manager := getTestManager()
-	plugin := New(&Config{}, manager)
+	plugin := newInternal(&Config{}, manager)
 	bundleName := "test-bundle"
 	plugin.status[bundleName] = &Status{Name: bundleName}
 	plugin.downloaders[bundleName] = download.New(download.Config{}, plugin.manager.Client(""), bundleName)
@@ -1185,7 +1185,7 @@ func TestPluginOneShotActivationRemovesOld(t *testing.T) {
 func TestPluginOneShotActivationConflictingRoots(t *testing.T) {
 	ctx := context.Background()
 	manager := getTestManager()
-	plugin := New(&Config{}, manager)
+	plugin := newInternal(&Config{}, manager)
 
 	ensurePluginState(t, plugin, plugins.StateNotReady)
 
@@ -1252,7 +1252,7 @@ func TestPluginOneShotActivationConflictingRoots(t *testing.T) {
 func TestPluginOneShotActivationPrefixMatchingRoots(t *testing.T) {
 	ctx := context.Background()
 	manager := getTestManager()
-	plugin := Plugin{
+	plugin := plugin{
 		manager:     manager,
 		status:      map[string]*Status{},
 		etags:       map[string]string{},
@@ -1290,7 +1290,7 @@ func TestPluginOneShotActivationPrefixMatchingRoots(t *testing.T) {
 
 }
 
-func ensureBundleOverlapStatus(t *testing.T, p *Plugin, bundleNames []string, expectedErrs []bool) {
+func ensureBundleOverlapStatus(t *testing.T, p *plugin, bundleNames []string, expectedErrs []bool) {
 	t.Helper()
 	for i, name := range bundleNames {
 		hasErr := p.status[name].Message != ""
@@ -1308,7 +1308,7 @@ func TestPluginListener(t *testing.T) {
 
 	ctx := context.Background()
 	manager := getTestManager()
-	plugin := New(&Config{}, manager)
+	plugin := newInternal(&Config{}, manager)
 	bundleName := "test-bundle"
 	plugin.status[bundleName] = &Status{Name: bundleName}
 	plugin.downloaders[bundleName] = download.New(download.Config{}, plugin.manager.Client(""), bundleName)
@@ -1411,7 +1411,7 @@ func validateStatus(t *testing.T, actual Status, expected string, expectStatusEr
 func TestPluginListenerErrorClearedOn304(t *testing.T) {
 	ctx := context.Background()
 	manager := getTestManager()
-	plugin := Plugin{
+	plugin := plugin{
 		manager:     manager,
 		status:      map[string]*Status{},
 		etags:       map[string]string{},
@@ -1463,7 +1463,7 @@ func TestPluginListenerErrorClearedOn304(t *testing.T) {
 func TestPluginBulkListener(t *testing.T) {
 	ctx := context.Background()
 	manager := getTestManager()
-	plugin := Plugin{
+	plugin := plugin{
 		manager:     manager,
 		status:      map[string]*Status{},
 		etags:       map[string]string{},
@@ -1652,7 +1652,7 @@ func TestPluginBulkListener(t *testing.T) {
 func TestPluginBulkListenerStatusCopyOnly(t *testing.T) {
 	ctx := context.Background()
 	manager := getTestManager()
-	plugin := Plugin{
+	plugin := plugin{
 		manager:     manager,
 		status:      map[string]*Status{},
 		etags:       map[string]string{},
@@ -1709,7 +1709,7 @@ func TestPluginActivateScopedBundle(t *testing.T) {
 
 	ctx := context.Background()
 	manager := getTestManager()
-	plugin := Plugin{
+	plugin := plugin{
 		manager:     manager,
 		status:      map[string]*Status{},
 		etags:       map[string]string{},
@@ -1841,7 +1841,7 @@ func TestPluginSetCompilerOnContext(t *testing.T) {
 
 	ctx := context.Background()
 	manager := getTestManager()
-	plugin := Plugin{
+	plugin := plugin{
 		manager:     manager,
 		status:      map[string]*Status{},
 		etags:       map[string]string{},
@@ -1936,7 +1936,7 @@ func TestPluginReconfigure(t *testing.T) {
 		t.Fatalf("Error configuring plugin manager: %s", err)
 	}
 
-	plugin := New(&Config{}, manager)
+	plugin := newInternal(&Config{}, manager)
 
 	var delay int64 = 10
 
@@ -2116,7 +2116,7 @@ func TestPluginRequestVsDownloadTimestamp(t *testing.T) {
 
 	ctx := context.Background()
 	manager := getTestManager()
-	plugin := Plugin{
+	plugin := plugin{
 		manager:     manager,
 		status:      map[string]*Status{},
 		etags:       map[string]string{},
@@ -2165,7 +2165,7 @@ func TestUpgradeLegacyBundleToMuiltiBundleSameBundle(t *testing.T) {
 
 	ctx := context.Background()
 	manager := getTestManager()
-	plugin := Plugin{
+	plugin := plugin{
 		manager:     manager,
 		status:      map[string]*Status{},
 		etags:       map[string]string{},
@@ -2260,7 +2260,7 @@ func TestUpgradeLegacyBundleToMuiltiBundleSameBundle(t *testing.T) {
 func TestUpgradeLegacyBundleToMuiltiBundleNewBundles(t *testing.T) {
 	ctx := context.Background()
 	manager := getTestManager()
-	plugin := Plugin{
+	plugin := plugin{
 		manager:     manager,
 		status:      map[string]*Status{},
 		etags:       map[string]string{},
@@ -2401,7 +2401,7 @@ func TestSaveBundleToDiskNew(t *testing.T) {
 	dir := t.TempDir()
 
 	bundles := map[string]*Source{}
-	plugin := New(&Config{Bundles: bundles}, manager)
+	plugin := newInternal(&Config{Bundles: bundles}, manager)
 	plugin.bundlePersistPath = filepath.Join(dir, ".opa")
 
 	err := plugin.saveBundleToDisk("foo", getTestRawBundle(t))
@@ -2416,7 +2416,7 @@ func TestSaveBundleToDiskNewConfiguredPersistDir(t *testing.T) {
 	manager := getTestManager()
 	manager.Config.PersistenceDirectory = &dir
 	bundles := map[string]*Source{}
-	plugin := New(&Config{Bundles: bundles}, manager)
+	plugin := newInternal(&Config{Bundles: bundles}, manager)
 
 	err := plugin.Start(context.Background())
 	if err != nil {
@@ -2443,7 +2443,7 @@ func TestSaveBundleToDiskOverWrite(t *testing.T) {
 	dir := t.TempDir()
 
 	bundles := map[string]*Source{}
-	plugin := New(&Config{Bundles: bundles}, manager)
+	plugin := newInternal(&Config{Bundles: bundles}, manager)
 	plugin.bundlePersistPath = filepath.Join(dir, ".opa")
 
 	bundleName := "foo"
@@ -2589,7 +2589,7 @@ func TestLoadSignedBundleFromDisk(t *testing.T) {
 }
 
 func TestGetDefaultBundlePersistPath(t *testing.T) {
-	plugin := New(&Config{}, getTestManager())
+	plugin := newInternal(&Config{}, getTestManager())
 	path, err := plugin.getBundlePersistPath()
 	if err != nil {
 		t.Fatalf("unexpected error %v", err)
@@ -2604,7 +2604,7 @@ func TestConfiguredBundlePersistPath(t *testing.T) {
 	persistPath := "/var/opa"
 	manager := getTestManager()
 	manager.Config.PersistenceDirectory = &persistPath
-	plugin := New(&Config{}, manager)
+	plugin := newInternal(&Config{}, manager)
 
 	path, err := plugin.getBundlePersistPath()
 	if err != nil {
@@ -2760,7 +2760,7 @@ func TestPluginReadBundleEtagFromDiskStore(t *testing.T) {
 
 		var mode plugins.TriggerMode = "manual"
 
-		plugin := New(&Config{
+		plugin := newInternal(&Config{
 			Bundles: map[string]*Source{
 				"test": {
 					Service:        "default",
@@ -2808,7 +2808,7 @@ func TestPluginReadBundleEtagFromDiskStore(t *testing.T) {
 		// The server should respond with a 304 as OPA has the right bundle loaded.
 		plugin.Stop(ctx)
 
-		plugin = New(&Config{
+		plugin = newInternal(&Config{
 			Bundles: map[string]*Source{
 				"test": {
 					Service:        "default",
@@ -2914,7 +2914,7 @@ func TestPluginManualTrigger(t *testing.T) {
 
 	var mode plugins.TriggerMode = "manual"
 
-	plugin := New(&Config{
+	plugin := newInternal(&Config{
 		Bundles: map[string]*Source{
 			"test": {
 				Service:        "default",
@@ -3041,7 +3041,7 @@ func TestPluginManualTriggerMultipleDiskStorage(t *testing.T) {
 
 		var mode plugins.TriggerMode = "manual"
 
-		plugin := New(&Config{
+		plugin := newInternal(&Config{
 			Bundles: map[string]*Source{
 				"test-1": {
 					Service:        "default",
@@ -3172,7 +3172,7 @@ func TestPluginManualTriggerMultiple(t *testing.T) {
 
 	var mode plugins.TriggerMode = "manual"
 
-	plugin := New(&Config{
+	plugin := newInternal(&Config{
 		Bundles: map[string]*Source{
 			"test-1": {
 				Service:        "default",
@@ -3248,7 +3248,7 @@ func TestPluginManualTriggerWithTimeout(t *testing.T) {
 	var mode plugins.TriggerMode = "manual"
 
 	bundleName := "test"
-	plugin := New(&Config{
+	plugin := newInternal(&Config{
 		Bundles: map[string]*Source{
 			bundleName: {
 				Service:        "default",
@@ -3406,7 +3406,7 @@ func validateStoreState(ctx context.Context, t *testing.T, store storage.Store, 
 	}
 }
 
-func ensurePluginState(t *testing.T, p *Plugin, state plugins.State) {
+func ensurePluginState(t *testing.T, p *plugin, state plugins.State) {
 	t.Helper()
 	status, ok := p.manager.PluginStatus()[Name]
 	if !ok {
