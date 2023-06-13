@@ -550,7 +550,7 @@ func getPluginSet(factories map[string]plugins.Factory, manager *plugins.Manager
 	reconfigs := []pluginreconfig{}
 
 	if bundleConfig != nil {
-		p, created := getBundlePlugin(manager, bundleConfig)
+		p, created := getBundlePlugin(manager, bundleConfig, factories[bundle.Name])
 		if created {
 			starts = append(starts, p)
 		} else if p != nil {
@@ -583,15 +583,24 @@ func getPluginSet(factories map[string]plugins.Factory, manager *plugins.Manager
 	return result, nil
 }
 
-func getBundlePlugin(m *plugins.Manager, config *bundle.Config) (plugin bundle.Plugin, created bool) {
-	plugin = bundle.Lookup(m)
-	if plugin == nil {
-		plugin = bundle.New(config, m)
-		m.Register(bundle.Name, plugin)
-		registerBundleStatusUpdates(m)
-		created = true
+func getBundlePlugin(m *plugins.Manager, config *bundle.Config, candidate plugins.Factory) (bundle.Plugin, bool) {
+	plugin := bundle.Lookup(m)
+	if plugin != nil {
+		return plugin, false
 	}
-	return plugin, created
+
+	f := bundle.New
+	if candidate != nil {
+		f = func(parsedConfig *bundle.Config, manager *plugins.Manager) bundle.Plugin {
+			return candidate.New(manager, parsedConfig).(bundle.Plugin)
+		}
+	}
+
+	plugin = f(config, m)
+	m.Register(bundle.Name, plugin)
+	registerBundleStatusUpdates(m)
+
+	return plugin, true
 }
 
 func getDecisionLogsPlugin(m *plugins.Manager, config *logs.Config, metrics metrics.Metrics) (plugin *logs.Plugin, created bool) {
