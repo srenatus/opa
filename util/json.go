@@ -115,15 +115,8 @@ func Unmarshal(bs []byte, v interface{}) error {
 		return UnmarshalJSON(nbs, v)
 	}
 	// not json or yaml: try extensions
-	if value, ok := v.(*any); ok {
-		if handler := extension.FindExtension(".json"); handler != nil {
-			retval, err := handler(bs)
-			if err != nil {
-				return err
-			}
-			*value = retval
-			return nil
-		}
+	if handler := extension.FindExtension(".json"); handler != nil {
+		return handler(bs, v)
 	}
 	return err
 }
