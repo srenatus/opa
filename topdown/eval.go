@@ -372,21 +372,32 @@ func (e *eval) evalStep(iter evalIterator) error {
 			})
 		}
 	case *ast.Term:
-		rterm := e.generateVar(fmt.Sprintf("term_%d_%d", e.queryID, e.index))
-		err = e.unify(terms, rterm, func() error {
-			if e.saveSet.Contains(rterm, e.bindings) {
-				return e.saveExpr(ast.NewExpr(rterm), e.bindings, func() error {
-					return iter(e)
-				})
-			}
-			if !e.bindings.Plug(rterm).Equal(ast.BooleanTerm(false)) {
+		switch terms.Value.(type) {
+		case ast.Ref: // "naked ref"
+			a, b1 := e.bindings.apply(terms)
+			err = e.biunifyRef(a, nil, b1, b1, func() error {
 				defined = true
 				err := iter(e)
 				e.traceRedo(expr)
 				return err
-			}
-			return nil
-		})
+			})
+		default:
+			rterm := e.generateVar(fmt.Sprintf("term_%d_%d", e.queryID, e.index))
+			err = e.unify(terms, rterm, func() error {
+				if e.saveSet.Contains(rterm, e.bindings) {
+					return e.saveExpr(ast.NewExpr(rterm), e.bindings, func() error {
+						return iter(e)
+					})
+				}
+				if !e.bindings.Plug(rterm).Equal(ast.BooleanTerm(false)) {
+					defined = true
+					err := iter(e)
+					e.traceRedo(expr)
+					return err
+				}
+				return nil
+			})
+		}
 	case *ast.Every:
 		eval := evalEvery{
 			e:    e,
@@ -1037,6 +1048,7 @@ func (e *eval) biunifyRef(a, b *ast.Term, b1, b2 *bindings, iter unifyIterator) 
 			rterm:     b,
 			rbindings: b2,
 			node:      node,
+			exists:    b == nil,
 		}
 		return eval.eval(iter)
 	}
@@ -1457,9 +1469,36 @@ func (e *eval) Resolve(ref ast.Ref) (ast.Value, error) {
 	return (&evalResolver{e: e}).Resolve(ref)
 }
 
+func (e *eval) Do(ref ast.Ref, f func(any)) error {
+	if !e.pushDown() {
+		return fmt.Errorf("pushdown not supported")
+	}
+	return (&evalResolver{e: e}).Do(ref, f)
+}
+
+func (e *eval) pushDown() bool {
+	_, ok := e.store.(interface {
+		Do(context.Context, storage.Transaction, storage.Path, func(any)) error
+	})
+	return ok
+}
+
 type evalResolver struct {
 	e    *eval
 	args []*ast.Term
+}
+
+func (e *evalResolver) Do(ref ast.Ref, f func(any)) error {
+	do := e.e.store.(interface {
+		Do(context.Context, storage.Transaction, storage.Path, func(any)) error
+	})
+	e.e.instr.startTimer(evalOpResolve)
+	defer e.e.instr.stopTimer(evalOpResolve)
+	path, err := storage.NewPathForRef(ref)
+	if err != nil {
+		return err // check storage NotFound?
+	}
+	return do.Do(e.e.ctx, e.e.txn, path, f)
 }
 
 func (e *evalResolver) Resolve(ref ast.Ref) (ast.Value, error) {
@@ -2040,6 +2079,7 @@ type evalTree struct {
 	rterm     *ast.Term
 	rbindings *bindings
 	node      *ast.TreeNode
+	exists    bool
 }
 
 func (e evalTree) eval(iter unifyIterator) error {
@@ -2057,6 +2097,10 @@ func (e evalTree) eval(iter unifyIterator) error {
 	return e.enumerate(iter)
 }
 
+func (e evalTree) pushDownTruthy() bool {
+	return e.rterm == nil && e.e.pushDown()
+}
+
 func (e evalTree) finish(iter unifyIterator) error {
 
 	// In some cases, it may not be possible to PE the ref. If the path refers
@@ -2065,15 +2109,29 @@ func (e evalTree) finish(iter unifyIterator) error {
 	save := e.e.unknown(e.plugged, e.e.bindings)
 
 	if save {
-		return e.e.saveUnify(ast.NewTerm(e.plugged), e.rterm, e.bindings, e.rbindings, iter)
+		rterm, rbindings := e.ensureRterm()
+		return e.e.saveUnify(ast.NewTerm(e.plugged), rterm, e.bindings, rbindings, iter)
 	}
 
-	v, err := e.extent()
-	if err != nil || v == nil {
+	if !e.pushDownTruthy() {
+		v, err := e.extent()
+		if err != nil || v == nil {
+			return err
+		}
+		return e.e.biunify(e.rterm, v, e.bindings, e.bindings, iter)
+	}
+
+	truthy := false
+	if err := e.e.Do(e.plugged, func(x any) {
+		y, ok := x.(bool)
+		truthy = !ok || y
+	}); err != nil {
 		return err
 	}
-
-	return e.e.biunify(e.rterm, v, e.rbindings, e.bindings, iter)
+	if truthy {
+		return iter()
+	}
+	return nil
 }
 
 func (e evalTree) next(iter unifyIterator, plugged *ast.Term) error {
@@ -2088,14 +2146,15 @@ func (e evalTree) next(iter unifyIterator, plugged *ast.Term) error {
 		if e.node != nil {
 			node = e.node.Child(plugged.Value)
 			if node != nil && len(node.Values) > 0 {
+				rterm, rbindings := e.ensureRterm()
 				r := evalVirtual{
 					e:         e.e,
 					ref:       e.ref,
 					plugged:   e.plugged,
 					pos:       e.pos,
 					bindings:  e.bindings,
-					rterm:     e.rterm,
-					rbindings: e.rbindings,
+					rterm:     rterm,
+					rbindings: rbindings,
 				}
 				r.plugged[e.pos] = plugged
 				return r.eval(iter)
@@ -2104,7 +2163,15 @@ func (e evalTree) next(iter unifyIterator, plugged *ast.Term) error {
 	}
 
 	cpy.node = node
+	cpy.rterm, cpy.rbindings = e.ensureRterm()
 	return cpy.eval(iter)
+}
+
+func (e evalTree) ensureRterm() (*ast.Term, *bindings) {
+	if e.rterm != nil {
+		return e.rterm, e.rbindings
+	}
+	return e.e.generateVar(fmt.Sprintf("term_%d_%d", e.e.queryID, e.e.index)), e.bindings
 }
 
 func (e evalTree) enumerate(iter unifyIterator) error {

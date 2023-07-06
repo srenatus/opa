@@ -298,6 +298,22 @@ func (db *store) Read(_ context.Context, txn storage.Transaction, path storage.P
 	return underlying.Read(path)
 }
 
+func (db *store) Do(_ context.Context, txn storage.Transaction, path storage.Path, f func(any)) error {
+	underlying, err := db.underlying(txn)
+	if err != nil {
+		return err
+	}
+	x, err := underlying.Read(path)
+	if err != nil {
+		if storage.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	f(x)
+	return nil
+}
+
 func (db *store) Write(_ context.Context, txn storage.Transaction, op storage.PatchOp, path storage.Path, value interface{}) error {
 	underlying, err := db.underlying(txn)
 	if err != nil {
