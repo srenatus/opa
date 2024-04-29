@@ -1757,10 +1757,13 @@ func TestDiscovery(t *testing.T) {
 	server := sdktest.MustNewServer(
 		sdktest.MockBundle("/bundles/discovery.tar.gz", map[string]string{
 			"bundles.rego": `
-package bundles
+package disco
+import rego.v1
 
-test := {"resource": "/bundles/bundle.tar.gz"}
-			`,
+services contains { "name": "bndl", "url": opa.runtime().service_url, }
+bundles.test.resource := "/bundles/bundle.tar.gz"
+bundles.test.service := "bndl"
+`,
 		}),
 		sdktest.MockBundle("/bundles/bundle.tar.gz", map[string]string{
 			"main.rego": `
@@ -1773,19 +1776,21 @@ main = 7
 
 	defer server.Stop()
 
-	config := fmt.Sprintf(`{
-		"services": {
-			"test": {
-				"url": %q
-			}
-		},
-		"discovery": {
-			"resource": "/bundles/discovery.tar.gz"
-		}
-	}`, server.URL())
+	config := fmt.Sprintf(`
+services:
+- name: discovery
+  url: %q
+discovery:
+  resource: /bundles/discovery.tar.gz
+  decision: disco
+`, server.URL())
 
 	opa, err := sdk.New(ctx, sdk.Options{
+		Logger: logging.New(),
 		Config: strings.NewReader(config),
+		ManagerOpts: []func(manager *plugins.Manager){
+			plugins.Info(ast.NewTerm(ast.NewObject([2]*ast.Term{ast.StringTerm("service_url"), ast.StringTerm(server.URL())}))),
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
