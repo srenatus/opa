@@ -9,6 +9,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  test-action:
+    runs-on: ubuntu-18.04
+    steps:
+    - name: Setup OPA
+      uses: infracost/setup-opa@v1
+      with:
+        version: ">=0.35"
+
+    - name: Test Version
+      run: opa version
+
   # All jobs essentially re-create the `ci-release-test` make target, but are split
   # up for parallel runners for faster PR feedback and a nicer UX.
   generate:
