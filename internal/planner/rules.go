@@ -20,18 +20,24 @@ type funcstack struct {
 }
 
 type taggedPairs struct {
-	pairs map[string]string
-	lvars []ast.Var
-	gen   int
+	pairs  map[string]string
+	vars   []ast.Var
+	vcount int
+	gen    int
 }
 
 func newFuncstack() *funcstack {
 	return &funcstack{
 		stack: []taggedPairs{
-			{pairs: map[string]string{}, gen: 0, lvars: []ast.Var{
-				ast.InputRootDocument.Value.(ast.Var),
-				ast.DefaultRootDocument.Value.(ast.Var),
-			}},
+			{
+				pairs: map[string]string{},
+				gen:   0,
+				vars: []ast.Var{
+					ast.InputRootDocument.Value.(ast.Var),
+					ast.DefaultRootDocument.Value.(ast.Var),
+				},
+				vcount: 2,
+			},
 		},
 		next: 1}
 }
@@ -41,17 +47,13 @@ func (p funcstack) last() taggedPairs {
 }
 
 func (p funcstack) argVars() int {
-	count := 0
-	for i := range p.stack {
-		count += len(p.stack[i].lvars)
-	}
-	return count
+	return p.last().vcount
 }
 
 func (p funcstack) vars() []ast.Var {
-	ret := make([]ast.Var, 0, p.argVars())
+	ret := make([]ast.Var, 0, p.last().vcount)
 	for i := range p.stack {
-		ret = append(ret, p.stack[i].lvars...)
+		ret = append(ret, p.stack[i].vars...)
 	}
 	return ret
 }
@@ -66,7 +68,12 @@ func (p funcstack) Get(key string) (string, bool) {
 }
 
 func (p *funcstack) Push(funcs map[string]string, vars []ast.Var) {
-	p.stack = append(p.stack, taggedPairs{pairs: funcs, gen: p.next, lvars: vars})
+	p.stack = append(p.stack, taggedPairs{
+		pairs:  funcs,
+		gen:    p.next,
+		vars:   vars,
+		vcount: p.last().vcount + len(vars),
+	})
 	p.next++
 }
 
