@@ -151,6 +151,7 @@
       "regex.template_match"
     ],
     "rego": [
+      "rego.dynamic",
       "rego.metadata.chain",
       "rego.metadata.rule",
       "rego.parse_module"
@@ -19440,6 +19441,26 @@
       "description": "true if `value` matches the `template`",
       "name": "result",
       "type": "boolean"
+    },
+    "wasm": false
+  },
+  "rego.dynamic": {
+    "args": [
+      {
+        "description": "configuration object containing 'ref' (the reference to evaluate) and 'rego' (the Rego policy string)",
+        "name": "config",
+        "type": "object\u003cref: string, rego: string\u003e[string: any]"
+      }
+    ],
+    "available": [
+      "edge"
+    ],
+    "description": "Evaluates a Rego policy dynamically and returns the value of the specified reference. This allows for dynamic policy evaluation where not all Rego code is known at compile time.",
+    "introduced": "edge",
+    "result": {
+      "description": "the value that the specified reference evaluates to in the dynamic policy",
+      "name": "result",
+      "type": "any"
     },
     "wasm": false
   },

@@ -3683,6 +3683,42 @@
       }
     },
     {
+      "name": "rego.dynamic",
+      "decl": {
+        "args": [
+          {
+            "dynamic": {
+              "key": {
+                "type": "string"
+              },
+              "value": {
+                "type": "any"
+              }
+            },
+            "static": [
+              {
+                "key": "ref",
+                "value": {
+                  "type": "string"
+                }
+              },
+              {
+                "key": "rego",
+                "value": {
+                  "type": "string"
+                }
+              }
+            ],
+            "type": "object"
+          }
+        ],
+        "result": {
+          "type": "any"
+        },
+        "type": "function"
+      }
+    },
+    {
       "name": "rego.metadata.chain",
       "decl": {
         "result": {

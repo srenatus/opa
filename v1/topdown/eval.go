@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -21,6 +22,8 @@ import (
 	"github.com/open-policy-agent/opa/v1/types"
 	"github.com/open-policy-agent/opa/v1/util"
 )
+
+const regoDynamicBuiltinName = "rego.dynamic"
 
 type evalIterator func(*eval) error
 
@@ -967,6 +970,12 @@ func (e *eval) evalCall(terms []*ast.Term, iter unifyIterator) error {
 	}
 
 	builtinName := ref.String()
+
+	// Special handling for rego.dynamic() - bypass builtin machinery to access evaluation context
+	if builtinName == regoDynamicBuiltinName {
+		return e.evalRegoDynamic(terms, iter)
+	}
+
 	bi, f, ok := e.builtinFunc(builtinName)
 	if !ok {
 		return unsupportedBuiltinErr(e.query[e.index].Location)
@@ -4335,4 +4344,106 @@ func (e *eval) updateSavedMocks(withs []*ast.With) []*ast.With {
 		ret = append(ret, w.Copy())
 	}
 	return ret
+}
+
+func (e *eval) evalRegoDynamic(terms []*ast.Term, iter unifyIterator) error {
+	if len(terms) < 2 {
+		return fmt.Errorf("rego.dynamic requires at least 1 argument")
+	}
+	args := terms[1:]
+	capturedResult := len(terms) == 3
+
+	// Check if arguments are unknown - if so, save the call
+	for i := range args {
+		if e.unknown(args[i], e.bindings) {
+			return e.saveCall(1, terms, iter)
+		}
+	}
+
+	configTerm := e.bindings.Plug(terms[1])
+	configObj, ok := configTerm.Value.(ast.Object)
+	if !ok {
+		return fmt.Errorf("rego.dynamic first argument must be object")
+	}
+	refTerm := configObj.Get(ast.StringTerm("ref"))
+	regoTerm := configObj.Get(ast.StringTerm("rego"))
+	if refTerm == nil || regoTerm == nil {
+		return fmt.Errorf("rego.dynamic config must have 'ref' and 'rego' fields")
+	}
+	refStr, ok1 := refTerm.Value.(ast.String)
+	regoStr, ok2 := regoTerm.Value.(ast.String)
+	if !ok1 || !ok2 {
+		return fmt.Errorf("rego.dynamic 'ref' and 'rego' must be strings")
+	}
+
+	ref, err := ast.ParseRef(string(refStr))
+	if err != nil {
+		return fmt.Errorf("failed to parse ref %q: %w", refStr, err)
+	}
+
+	// TODO(sr): rego_version etc
+	parsedPolicy, err := ast.ParseModule("dynamic_policy", string(regoStr))
+	if err != nil {
+		return fmt.Errorf("failed to parse dynamic policy: %w", err)
+	}
+
+	// Create a new compiler with the dynamic policy
+	dynamicCompiler := ast.NewCompiler()
+	maps.Copy(dynamicCompiler.Modules, e.compiler.Modules) // TODO(sr): This should allow us to have the compiler catch recursive calls -- verify!
+	dynamicCompiler.Modules["dynamic_policy"] = parsedPolicy
+	dynamicCompiler.WithCapabilities(e.compiler.Capabilities())
+	dynamicCompiler.Compile(dynamicCompiler.Modules)
+	if dynamicCompiler.Failed() {
+		return fmt.Errorf("failed to compile dynamic policy: %v", dynamicCompiler.Errors)
+	}
+
+	// For output capture, create a query that unifies the reference with a variable
+	refAsTerm := ast.NewTerm(ref)
+	var query ast.Body
+	var outputVar *ast.Term
+	if capturedResult {
+		outputVar = e.generateVar("dynamic_result")
+		query = ast.NewBody(ast.Equality.Expr(refAsTerm, outputVar))
+	} else {
+		query = ast.NewBody(ast.NewExpr(refAsTerm))
+	}
+
+	child := evalPool.Get()
+	defer evalPool.Put(child)
+
+	e.child(query, child)
+	child.compiler = dynamicCompiler
+
+	foundResult := false
+	var resultTerm *ast.Term
+
+	var ss []saveStackQuery
+	if err := suppressEarlyExit(child.eval(func(child *eval) error {
+		// NB(sr): To get PE to work, we'll copy the inner saved expressions and
+		// put them intothe outer saveStack below.
+		if child.saveStack != nil {
+			ss = make([]saveStackQuery, len(child.saveStack.Stack))
+			copy(ss, child.saveStack.Stack)
+		}
+
+		foundResult = true
+		if capturedResult {
+			resultTerm = child.bindings.Plug(outputVar) // outputVar is initialized above and bound via `query`
+		}
+		return nil
+	})); err != nil {
+		return err
+	}
+	if ss != nil {
+		e.saveStack.Stack = ss
+	}
+
+	if foundResult {
+		if capturedResult {
+			return e.unify(resultTerm, terms[2], iter)
+		} else {
+			return iter()
+		}
+	}
+	return nil // no result
 }

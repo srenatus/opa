@@ -1,0 +1,81 @@
+---
+cases:
+  - note: regodynamic/basic_boolean_result
+    query: data.test.result = x
+    modules:
+      - |
+        package test
+
+        result := rego.dynamic({
+          "ref": "data.example.allowed",
+          "rego": "package example\nallowed = true"
+        })
+    want_result:
+      - x: true
+
+  - note: regodynamic/basic_numeric_result
+    query: data.test.result = x
+    modules:
+      - |
+        package test
+
+        result := rego.dynamic({
+          "ref": "data.math.answer",
+          "rego": "package math\nanswer = 42"
+        })
+    want_result:
+      - x: 42
+
+  - note: regodynamic/basic_string_result
+    query: data.test.result = x
+    modules:
+      - |
+        package test
+
+        result := rego.dynamic({
+          "ref": "data.greeting.message",
+          "rego": "package greeting\nmessage = \"hello world\""
+        })
+    want_result:
+      - x: "hello world"
+
+  - note: regodynamic/undefined_result
+    query: data.test.result = x
+    modules:
+      - |
+        package test
+
+        result := rego.dynamic({
+          "ref": "data.missing.value",
+          "rego": "package other\nvalue = 42"
+        })
+    want_result: []
+
+  - note: regodynamic/conditional_result_true
+    query: data.test.result = x
+    modules:
+      - |
+        package test
+
+        result := rego.dynamic({
+          "ref": "data.logic.allowed",
+          "rego": "package logic\nallowed if input.user == \"admin\""
+        })
+    input:
+      user: admin
+    want_result:
+      - x: true
+
+  - note: regodynamic/conditional_result_false
+    query: data.test.result = x
+    modules:
+      - |
+        package test
+
+        result := rego.dynamic({
+          "ref": "data.logic.allowed",
+          "rego": "package logic\nallowed if input.user == \"admin\""
+        })
+    input:
+      user: guest
+    want_result: []

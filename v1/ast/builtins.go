@@ -281,6 +281,7 @@ var DefaultBuiltins = [...]*Builtin{
 	RegoParseModule,
 	RegoMetadataChain,
 	RegoMetadataRule,
+	RegoDynamic,
 
 	// OPA
 	OPARuntime,
@@ -3146,6 +3147,25 @@ var RegoMetadataRule = &Builtin{
 		types.Named("output", types.A).Description("\"rule\" scope annotations for this rule; empty object if no annotations exist"),
 	),
 	CanSkipBctx: true,
+}
+
+// RegoDynamic evaluates dynamic Rego policies at runtime
+var RegoDynamic = &Builtin{
+	Name:        "rego.dynamic",
+	Description: "Evaluates a Rego policy dynamically and returns the value of the specified reference. This allows for dynamic policy evaluation where not all Rego code is known at compile time.",
+	Decl: types.NewFunction(
+		types.Args(
+			types.Named("config", types.NewObject(
+				[]*types.StaticProperty{
+					{Key: "ref", Value: types.S},
+					{Key: "rego", Value: types.S},
+				},
+				types.NewDynamicProperty(types.S, types.A),
+			)).Description("configuration object containing 'ref' (the reference to evaluate) and 'rego' (the Rego policy string)"),
+		),
+		types.Named("result", types.A).Description("the value that the specified reference evaluates to in the dynamic policy"),
+	),
+	CanSkipBctx: false,
 }
 
 /**

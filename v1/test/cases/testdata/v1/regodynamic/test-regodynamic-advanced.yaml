@@ -1,0 +1,126 @@
+---
+cases:
+  - note: regodynamic/array_result
+    query: data.test.result = x
+    modules:
+      - |
+        package test
+
+        result := rego.dynamic({
+          "ref": "data.lists.items",
+          "rego": "package lists\nitems = [1, 2, 3]"
+        })
+    want_result:
+      - x: [1, 2, 3]
+
+  - note: regodynamic/object_result
+    query: data.test.result = x
+    modules:
+      - |
+        package test
+
+        result := rego.dynamic({
+          "ref": "data.config.settings",
+          "rego": "package config\nsettings = {\"debug\": true, \"port\": 8080}"
+        })
+    want_result:
+      - x: {"debug": true, "port": 8080}
+
+  - note: regodynamic/set_result
+    query: data.test.result = x
+    modules:
+      - |
+        package test
+
+        result := rego.dynamic({
+          "ref": "data.perms.roles",
+          "rego": "package perms\nroles = {\"admin\", \"user\", \"guest\"}"
+        })
+    want_result:
+      - x: ["admin", "guest", "user"]
+
+  - note: regodynamic/with_data_access
+    query: data.test.result = x
+    modules:
+      - |
+        package test
+
+        result := rego.dynamic({
+          "ref": "data.auth.allowed",
+          "rego": "package auth\nallowed if data.users[input.user] == \"admin\""
+        })
+    data:
+      users:
+        alice: admin
+        bob: user
+    input:
+      user: alice
+    want_result:
+      - x: true
+
+  # - note: regodynamic/with_data_access_recursive
+  #   query: data.test.result = x
+  #   modules:
+  #     - |
+  #       package test
+
+  #       result := rego.dynamic({
+  #         "ref": "data.auth.allowed",
+  #         "rego": "package auth\nallowed if data.test.rec"
+  #       })
+
+  #       rec if result
+  #   want_result:
+  #     - x: true
+  - note: regodynamic/with_data_access_false
+    query: data.test.result = x
+    modules:
+      - |
+        package test
+
+        result := rego.dynamic({
+          "ref": "data.auth.allowed",
+          "rego": "package auth\nallowed if data.users[input.user] == \"admin\""
+        })
+    data:
+      users:
+        alice: admin
+        bob: user
+    input:
+      user: bob
+    want_result: []
+
+  - note: regodynamic/complex_policy
+    query: data.test.result = x
+    modules:
+      - |
+        package test
+
+        result := rego.dynamic({
+          "ref": "data.policy.decision",
+          "rego": "package policy\n\ndecision = {\n  \"allowed\": allow,\n  \"reason\": reason\n}\n\nallow if {\n  input.user in data.admins\n}\n\nallow if {\n  input.action == \"read\"\n  input.resource in data.public_resources\n}\n\nreason = \"admin user\" if {\n  input.user in data.admins\n}\n\nreason = \"public resource\" if {\n  not input.user in data.admins\n  input.action == \"read\"\n  input.resource in data.public_resources\n}\n\nreason = \"denied\" if {\n  not allow\n}"
+        })
+    data:
+      admins: ["alice"]
+      public_resources: ["docs", "help"]
+    input:
+      user: bob
+      action: read
+      resource: docs
+    want_result:
+      - x: {"allowed": true, "reason": "public resource"}
+
+  - note: regodynamic/multivalue_result
+    query: data.test.result = x
+    modules:
+      - |
+        package test
+
+        result := rego.dynamic({
+          "ref": "data.items.values",
+          "rego": "package items\nvalues contains x if {\n    x := input.list[_]\n    x > 5\n}"
+        })
+    input:
+      list: [1, 7, 3, 9, 2, 8]
+    want_result:
+      - x: [7, 8, 9]
