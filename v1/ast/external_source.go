@@ -4,9 +4,13 @@
 
 package ast
 
+import (
+	"context"
+)
+
 // ExternalRuleSource provides rules lazily during evaluation.
 type ExternalRuleSource interface {
 	// GetRules returns rules for the package. The input parameter allows
 	// filtering to return only input-relevant rules.
-	GetRules(input *Term) ([]*Rule, error)
+	GetRules(_ context.Context, input *Term) ([]*Rule, error)
 }

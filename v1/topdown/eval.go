@@ -1677,7 +1677,7 @@ func (e *eval) getRules(ref ast.Ref, args []*ast.Term) (*ast.IndexResult, error)
 		if ok {
 			index = cachedIndex
 		} else {
-			rules, err := matchedSource.GetRules(e.input)
+			rules, err := matchedSource.GetRules(e.ctx, e.input)
 			if err != nil {
 				return nil, err
 			}
@@ -2498,7 +2498,17 @@ func (e evalTree) next(iter unifyIterator, plugged *ast.Term) error {
 	if !e.e.targetStack.Prefixed(cpy.plugged[:cpy.pos]) {
 		if e.node != nil {
 			node = e.node.Child(plugged.Value)
-			if node != nil && len(node.Values) > 0 {
+			// Check for rules in tree OR external source at this path
+			hasRules := node != nil && len(node.Values) > 0
+			hasExternalSource := false
+			if !hasRules && node != nil {
+				// Check if this path or any prefix has an external source
+				checkRef := cpy.plugged[:cpy.pos]
+				src, _ := e.e.compiler.GetExternalSource(checkRef)
+				hasExternalSource = src != nil
+			}
+
+			if hasRules || hasExternalSource {
 				r := evalVirtual{
 					e:         e.e,
 					ref:       e.ref,

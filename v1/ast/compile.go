@@ -3212,6 +3212,12 @@ func (c *Compiler) setModuleTree() {
 
 func (c *Compiler) setRuleTree() {
 	c.RuleTree = NewRuleTree(c.ModuleTree)
+
+	// Add tree nodes for external source paths so evaluation knows to look there
+	c.externalSources.Iter(func(pkgRef Ref, source ExternalRuleSource) bool {
+		c.RuleTree.add(pkgRef, nil)
+		return false
+	})
 }
 
 func (c *Compiler) setGraph() {

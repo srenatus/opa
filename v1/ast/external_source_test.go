@@ -1,6 +1,7 @@
 package ast
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -20,7 +21,7 @@ func newMockExternalSource(rules []*Rule) *mockExternalSource {
 	}
 }
 
-func (m *mockExternalSource) GetRules(input *Term) ([]*Rule, error) {
+func (m *mockExternalSource) GetRules(ctx context.Context, input *Term) ([]*Rule, error) {
 	atomic.AddInt32(&m.callCount, 1)
 	return m.rules, nil
 }
@@ -202,7 +203,7 @@ func TestExternalSourceInputParameter(t *testing.T) {
 
 	testInput := ObjectTerm(Item(StringTerm("key"), StringTerm("value")))
 
-	rules, err := captureSource.GetRules(testInput)
+	rules, err := captureSource.GetRules(context.Background(), testInput)
 	if err != nil {
 		t.Fatalf("GetRules failed: %v", err)
 	}
@@ -299,7 +300,7 @@ func TestExternalSourceError(t *testing.T) {
 		t.Error("Expected nil RuleIndex for external source")
 	}
 
-	_, err := errorSource.GetRules(nil)
+	_, err := errorSource.GetRules(context.Background(), nil)
 	if err == nil {
 		t.Error("Expected error from GetRules")
 	}
@@ -310,7 +311,7 @@ type inputCapturingSource struct {
 	captureFunc func(*Term)
 }
 
-func (s *inputCapturingSource) GetRules(input *Term) ([]*Rule, error) {
+func (s *inputCapturingSource) GetRules(ctx context.Context, input *Term) ([]*Rule, error) {
 	if s.captureFunc != nil {
 		s.captureFunc(input)
 	}
@@ -321,6 +322,6 @@ type errorExternalSource struct {
 	err error
 }
 
-func (e *errorExternalSource) GetRules(input *Term) ([]*Rule, error) {
+func (e *errorExternalSource) GetRules(ctx context.Context, input *Term) ([]*Rule, error) {
 	return nil, e.err
 }
