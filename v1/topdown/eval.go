@@ -1685,7 +1685,7 @@ func (e *eval) getRules(ref ast.Ref, args []*ast.Term) (*ast.IndexResult, error)
 				return nil, nil
 			}
 
-			index = e.compiler.BuildRuleIndexFromRules(rules)
+			index = e.compiler.NewExternalSourceIndex(rules)
 			if index == nil {
 				return nil, nil
 			}

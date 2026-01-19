@@ -148,7 +148,7 @@ func TestIterateExternalSources(t *testing.T) {
 	}
 }
 
-func TestBuildRuleIndexFromRules(t *testing.T) {
+func TestNewExternalSourceIndex(t *testing.T) {
 	rule1 := &Rule{
 		Head: &Head{
 			Reference: MustParseRef("data.test.foo"),
@@ -169,12 +169,12 @@ func TestBuildRuleIndexFromRules(t *testing.T) {
 	compiler.Compile(map[string]*Module{})
 	rules := []*Rule{rule1, rule2}
 
-	index := compiler.BuildRuleIndexFromRules(rules)
+	index := compiler.NewExternalSourceIndex(rules)
 	if index == nil {
-		t.Fatal("Expected non-nil index from BuildRuleIndexFromRules")
+		t.Fatal("Expected non-nil index from NewExternalSourceIndex")
 	}
 
-	emptyIndex := compiler.BuildRuleIndexFromRules([]*Rule{})
+	emptyIndex := compiler.NewExternalSourceIndex([]*Rule{})
 	if emptyIndex != nil {
 		t.Error("Expected nil index for empty rule set")
 	}

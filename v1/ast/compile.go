@@ -956,13 +956,47 @@ func (c *Compiler) IterateExternalSources(fn func(Ref, ExternalRuleSource) bool)
 	c.externalSources.Iter(fn)
 }
 
-// BuildRuleIndexFromRules builds a RuleIndex from the provided rules.
-// This is used during evaluation to index rules fetched from external sources.
-// The index uses the compiler's RuleTree to determine document virtuality.
-func (c *Compiler) BuildRuleIndexFromRules(rules []*Rule) RuleIndex {
-	index := newBaseDocEqIndex(func(ref Ref) bool {
-		return isVirtual(c.RuleTree, ref.GroundPrefix())
-	})
+// externalSourceIndex is a simple RuleIndex that returns all rules without indexing.
+// External sources are expected to pre-filter rules based on input, so additional
+// indexing is unnecessary.
+type externalSourceIndex struct {
+	result *IndexResult
+}
+
+func (e *externalSourceIndex) Build(rules []*Rule) bool {
+	if len(rules) == 0 {
+		return false
+	}
+
+	// Determine rule kind from first rule
+	kind := rules[0].Head.RuleKind()
+
+	e.result = &IndexResult{
+		Rules:          rules,
+		Else:           make(map[*Rule][]*Rule),
+		Kind:           kind,
+		EarlyExit:      false,
+		OnlyGroundRefs: false, // TODO(sr): Why?
+	}
+	return true
+}
+
+func (e *externalSourceIndex) Lookup(resolver ValueResolver) (*IndexResult, error) {
+	return e.result, nil
+}
+
+func (e *externalSourceIndex) AllRules(resolver ValueResolver) (*IndexResult, error) {
+	return e.result, nil
+}
+
+// NewExternalSourceIndex creates a simple RuleIndex for externally-sourced rules.
+// The index returns all rules without optimization, as external sources are expected
+// to pre-filter rules based on input.
+func (c *Compiler) NewExternalSourceIndex(rules []*Rule) RuleIndex {
+	if len(rules) == 0 {
+		return nil
+	}
+	index := &externalSourceIndex{}
 	if !index.Build(rules) {
 		return nil
 	}
