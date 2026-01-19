@@ -85,6 +85,7 @@ type eval struct {
 	input                       *ast.Term
 	data                        *ast.Term
 	external                    *resolverTrie
+	externalRuleIndices         *util.HasherMap[ast.Ref, ast.RuleIndex]
 	targetStack                 *refStack
 	traceLastLocation           *ast.Location // Last location of a trace event.
 	instr                       *Instrumentation
@@ -1664,7 +1665,38 @@ func (e *eval) getRules(ref ast.Ref, args []*ast.Term) (*ast.IndexResult, error)
 	e.instr.startTimer(evalOpRuleIndex)
 	defer e.instr.stopTimer(evalOpRuleIndex)
 
-	index := e.compiler.RuleIndex(ref)
+	var index ast.RuleIndex
+	matchedSource, matchedRef := e.compiler.GetExternalSource(ref)
+
+	if matchedSource != nil {
+		if e.externalRuleIndices == nil {
+			e.externalRuleIndices = util.NewHasherMap[ast.Ref, ast.RuleIndex](ast.RefEqual)
+		}
+
+		cachedIndex, ok := e.externalRuleIndices.Get(matchedRef)
+		if ok {
+			index = cachedIndex
+		} else {
+			rules, err := matchedSource.GetRules(e.input)
+			if err != nil {
+				return nil, err
+			}
+			if len(rules) == 0 {
+				return nil, nil
+			}
+
+			index = e.compiler.BuildRuleIndexFromRules(rules)
+			if index == nil {
+				return nil, nil
+			}
+
+			e.externalRuleIndices.Put(matchedRef, index) // TODO(sr): Good enough? We depend on `input`. Probably needs to be shadowed when we see `with input as ...`
+		}
+	} else {
+		// No external source matched, use compiler's rule index
+		index = e.compiler.RuleIndex(ref)
+	}
+
 	if index == nil {
 		return nil, nil
 	}

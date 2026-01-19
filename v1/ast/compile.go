@@ -130,6 +130,7 @@ type Compiler struct {
 	localvargen                *localVarGenerator
 	moduleLoader               ModuleLoader
 	ruleIndices                *util.HasherMap[Ref, RuleIndex]
+	externalSources            *util.HasherMap[Ref, ExternalRuleSource]
 	stages                     []stage
 	maxErrs                    int
 	errCount                   uint32
@@ -314,6 +315,7 @@ func NewCompiler() *Compiler {
 		RewrittenVars:         map[Var]Var{},
 		Required:              &Capabilities{},
 		ruleIndices:           util.NewHasherMap[Ref, RuleIndex](RefEqual),
+		externalSources:       util.NewHasherMap[Ref, ExternalRuleSource](RefEqual),
 		maxErrs:               CompileErrorLimitDefault,
 		mu:                    &sync.Mutex{},
 		after:                 map[string][]CompilerStageDefinition{},
@@ -826,12 +828,35 @@ func insertRules(set map[*Rule]struct{}, rules []any) {
 // The path must refer to the rule set exactly, i.e., given a rule set at path
 // data.a.b.c.p, refs data.a.b.c.p.x and data.a.b.c would not return a
 // RuleIndex built for the rule.
+//
+// Note: For paths covered by external rule sources, this returns nil, as the
+// compiler's `ruleIndices` doesn't contain them. External sources are fetched
+// lazily during evaluation when input is available.
 func (c *Compiler) RuleIndex(path Ref) RuleIndex {
 	r, ok := c.ruleIndices.Get(path)
 	if !ok {
 		return nil
 	}
 	return r
+}
+
+// GetExternalSource returns the external rule source that covers the given path,
+// along with the package reference at which it was registered. Returns (nil, nil)
+// if no external source is registered for this path.
+//
+// This is used during evaluation to lazily fetch rules with input-specific filtering.
+func (c *Compiler) GetExternalSource(path Ref) (ExternalRuleSource, Ref) {
+	var matchedSource ExternalRuleSource
+	var matchedRef Ref
+	c.externalSources.Iter(func(pkgRef Ref, source ExternalRuleSource) bool {
+		if path.HasPrefix(pkgRef) {
+			matchedRef = pkgRef
+			matchedSource = source
+			return true // stop iteration
+		}
+		return false
+	})
+	return matchedSource, matchedRef
 }
 
 // PassesTypeCheck determines whether the given body passes type checking
@@ -909,6 +934,39 @@ type ModuleLoader func(resolved map[string]*Module) (parsed map[string]*Module, 
 func (c *Compiler) WithModuleLoader(f ModuleLoader) *Compiler {
 	c.moduleLoader = f
 	return c
+}
+
+// WithExternalSource registers an external rule source for the given package
+// reference. When rules under this package are queried via RuleIndex, the
+// external source will be invoked to fetch all rules for the package. The
+// fetched rules are cached so the external source is only called once per
+// package.
+//
+// The package reference should be a fully qualified path (e.g., data.foo.bar).
+// All rule queries under this package will be handled by the external source.
+func (c *Compiler) WithExternalSource(packageRef Ref, source ExternalRuleSource) *Compiler {
+	c.externalSources.Put(packageRef, source)
+	return c
+}
+
+// IterateExternalSources calls the provided function for each registered external source.
+// The function receives the package ref and source. If the function returns true,
+// iteration stops early.
+func (c *Compiler) IterateExternalSources(fn func(Ref, ExternalRuleSource) bool) {
+	c.externalSources.Iter(fn)
+}
+
+// BuildRuleIndexFromRules builds a RuleIndex from the provided rules.
+// This is used during evaluation to index rules fetched from external sources.
+// The index uses the compiler's RuleTree to determine document virtuality.
+func (c *Compiler) BuildRuleIndexFromRules(rules []*Rule) RuleIndex {
+	index := newBaseDocEqIndex(func(ref Ref) bool {
+		return isVirtual(c.RuleTree, ref.GroundPrefix())
+	})
+	if !index.Build(rules) {
+		return nil
+	}
+	return index
 }
 
 // WithDefaultRegoVersion sets the default Rego version to use when a module doesn't specify one;
