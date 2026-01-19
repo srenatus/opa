@@ -59,6 +59,19 @@ func (ee deferredEarlyExitError) Error() string {
 	return fmt.Sprintf("%v: deferred early exit", ee.e.query)
 }
 
+type externalSourceCacheKey struct {
+	packageRef ast.Ref   // The matched external source package ref (e.g., data.authz)
+	input      *ast.Term // The input term
+}
+
+func (k externalSourceCacheKey) Equal(other externalSourceCacheKey) bool {
+	return k.packageRef.Equal(other.packageRef) && k.input.Equal(other.input)
+}
+
+func (k externalSourceCacheKey) Hash() int {
+	return k.packageRef.Hash() + k.input.Hash()
+}
+
 // Note(æ): this struct is formatted for optimal alignment as it is big, internal and instantiated
 // *very* frequently during evaluation. If you need to add fields here, please consider the alignment
 // of the struct, and use something like betteralign (https://github.com/dkorunic/betteralign) if you
@@ -85,7 +98,7 @@ type eval struct {
 	input                       *ast.Term
 	data                        *ast.Term
 	external                    *resolverTrie
-	externalRuleIndices         *util.HasherMap[ast.Ref, ast.RuleIndex]
+	externalRules               *util.HasherMap[externalSourceCacheKey, []*ast.Rule]
 	targetStack                 *refStack
 	traceLastLocation           *ast.Location // Last location of a trace event.
 	instr                       *Instrumentation
@@ -1669,14 +1682,19 @@ func (e *eval) getRules(ref ast.Ref, args []*ast.Term) (*ast.IndexResult, error)
 	matchedSource, matchedRef := e.compiler.GetExternalSource(ref)
 
 	if matchedSource != nil {
-		if e.externalRuleIndices == nil {
-			e.externalRuleIndices = util.NewHasherMap[ast.Ref, ast.RuleIndex](ast.RefEqual)
+		if e.externalRules == nil {
+			e.externalRules = util.NewHasherMap[externalSourceCacheKey, []*ast.Rule](externalSourceCacheKey.Equal)
 		}
 
-		cachedIndex, ok := e.externalRuleIndices.Get(matchedRef)
+		// Cache key is based on the matched package ref and input, not the specific rule ref
+		cacheKey := externalSourceCacheKey{packageRef: matchedRef, input: e.input}
+		cachedRules, ok := e.externalRules.Get(cacheKey)
+
+		var allRules []*ast.Rule
 		if ok {
-			index = cachedIndex
+			allRules = cachedRules
 		} else {
+			// Fetch all rules from the external source
 			rules, err := matchedSource.GetRules(e.ctx, e.input)
 			if err != nil {
 				return nil, err
@@ -1685,12 +1703,30 @@ func (e *eval) getRules(ref ast.Ref, args []*ast.Term) (*ast.IndexResult, error)
 				return nil, nil
 			}
 
-			index = e.compiler.NewExternalSourceIndex(rules)
-			if index == nil {
-				return nil, nil
-			}
+			// Cache all rules with package ref + input as key
+			e.externalRules.Put(cacheKey, rules)
+			allRules = rules
+		}
 
-			e.externalRuleIndices.Put(matchedRef, index) // TODO(sr): Good enough? We depend on `input`. Probably needs to be shadowed when we see `with input as ...`
+		// Filter rules to only those matching the queried ref
+		// The external source returns all rules from the package,
+		// but we only want rules that match the specific ref being queried.
+		var filteredRules []*ast.Rule
+		for _, rule := range allRules {
+			ruleRef := rule.Ref()
+			if ruleRef.HasPrefix(ref) || ref.HasPrefix(ruleRef) {
+				filteredRules = append(filteredRules, rule)
+			}
+		}
+
+		if len(filteredRules) == 0 {
+			return nil, nil
+		}
+
+		// Build index from filtered rules
+		index = e.compiler.NewExternalSourceIndex(filteredRules)
+		if index == nil {
+			return nil, nil
 		}
 	} else {
 		// No external source matched, use compiler's rule index

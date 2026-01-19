@@ -1045,7 +1045,14 @@ func (c *Compiler) buildRuleIndices() {
 		}
 
 		index := newBaseDocEqIndex(func(ref Ref) bool {
-			return isVirtual(c.RuleTree, ref.GroundPrefix())
+			groundPrefix := ref.GroundPrefix()
+			// Check if it's a regular virtual document in the rule tree
+			if isVirtual(c.RuleTree, groundPrefix) {
+				return true
+			}
+			// Check if it's covered by a registered external source
+			source, _ := c.GetExternalSource(groundPrefix)
+			return source != nil
 		})
 		if index.Build(rules) {
 			c.ruleIndices.Put(rules[0].Ref().GroundPrefix(), index)
