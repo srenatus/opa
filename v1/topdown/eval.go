@@ -59,17 +59,53 @@ func (ee deferredEarlyExitError) Error() string {
 	return fmt.Sprintf("%v: deferred early exit", ee.e.query)
 }
 
-type externalSourceCacheKey struct {
-	packageRef ast.Ref   // The matched external source package ref (e.g., data.authz)
-	input      *ast.Term // The input term
+// externalRuleIndexAdapter adapts an ast.ExternalRuleIndex to the RuleIndex interface.
+type externalRuleIndexAdapter struct {
+	ctx   context.Context
+	index ast.ExternalRuleIndex
+	input *ast.Term
 }
 
-func (k externalSourceCacheKey) Equal(other externalSourceCacheKey) bool {
-	return k.packageRef.Equal(other.packageRef) && k.input.Equal(other.input)
+// Build() only serves to satsify [ast.RuleIndex]
+func (*externalRuleIndexAdapter) Build([]*ast.Rule) bool { return false }
+
+func (e *externalRuleIndexAdapter) Lookup(resolver ast.ValueResolver) (*ast.IndexResult, error) {
+	rules, err := e.index.Lookup(e.ctx, e.input, resolver)
+	if err != nil {
+		return nil, err
+	}
+	if len(rules) == 0 {
+		return nil, nil
+	}
+
+	// TODO(sr): These hardcoded values surely don't work out all the time. Fix this.
+	kind := rules[0].Head.RuleKind()
+	return &ast.IndexResult{
+		Rules:          rules,
+		Else:           make(map[*ast.Rule][]*ast.Rule),
+		Kind:           kind,
+		EarlyExit:      false,
+		OnlyGroundRefs: false,
+	}, nil
 }
 
-func (k externalSourceCacheKey) Hash() int {
-	return k.packageRef.Hash() + k.input.Hash()
+func (e *externalRuleIndexAdapter) AllRules(resolver ast.ValueResolver) (*ast.IndexResult, error) {
+	rules, err := e.index.AllRules(e.ctx, e.input)
+	if err != nil {
+		return nil, err
+	}
+	if len(rules) == 0 {
+		return nil, nil
+	}
+
+	kind := rules[0].Head.RuleKind()
+	return &ast.IndexResult{
+		Rules:          rules,
+		Else:           make(map[*ast.Rule][]*ast.Rule),
+		Kind:           kind,
+		EarlyExit:      false,
+		OnlyGroundRefs: false,
+	}, nil
 }
 
 // Note(æ): this struct is formatted for optimal alignment as it is big, internal and instantiated
@@ -98,7 +134,6 @@ type eval struct {
 	input                       *ast.Term
 	data                        *ast.Term
 	external                    *resolverTrie
-	externalRules               *util.HasherMap[externalSourceCacheKey, []*ast.Rule]
 	targetStack                 *refStack
 	traceLastLocation           *ast.Location // Last location of a trace event.
 	instr                       *Instrumentation
@@ -1679,54 +1714,17 @@ func (e *eval) getRules(ref ast.Ref, args []*ast.Term) (*ast.IndexResult, error)
 	defer e.instr.stopTimer(evalOpRuleIndex)
 
 	var index ast.RuleIndex
-	matchedSource, matchedRef := e.compiler.GetExternalSource(ref)
-
-	if matchedSource != nil {
-		if e.externalRules == nil {
-			e.externalRules = util.NewHasherMap[externalSourceCacheKey, []*ast.Rule](externalSourceCacheKey.Equal)
+	if matchedSource := e.compiler.GetExternalSource(ref); matchedSource != nil {
+		externalIndex, err := matchedSource.Init(e.ctx)
+		if err != nil || externalIndex == nil {
+			return nil, err
 		}
 
-		// Cache key is based on the matched package ref and input, not the specific rule ref
-		cacheKey := externalSourceCacheKey{packageRef: matchedRef, input: e.input}
-		cachedRules, ok := e.externalRules.Get(cacheKey)
-
-		var allRules []*ast.Rule
-		if ok {
-			allRules = cachedRules
-		} else {
-			// Fetch all rules from the external source
-			rules, err := matchedSource.GetRules(e.ctx, e.input)
-			if err != nil {
-				return nil, err
-			}
-			if len(rules) == 0 {
-				return nil, nil
-			}
-
-			// Cache all rules with package ref + input as key
-			e.externalRules.Put(cacheKey, rules)
-			allRules = rules
-		}
-
-		// Filter rules to only those matching the queried ref
-		// The external source returns all rules from the package,
-		// but we only want rules that match the specific ref being queried.
-		var filteredRules []*ast.Rule
-		for _, rule := range allRules {
-			ruleRef := rule.Ref()
-			if ruleRef.HasPrefix(ref) || ref.HasPrefix(ruleRef) {
-				filteredRules = append(filteredRules, rule)
-			}
-		}
-
-		if len(filteredRules) == 0 {
-			return nil, nil
-		}
-
-		// Build index from filtered rules
-		index = e.compiler.NewExternalSourceIndex(filteredRules)
-		if index == nil {
-			return nil, nil
+		// wrapping allows us to use `e.ctx` in `Lookup()` and `AllRules()` below
+		index = &externalRuleIndexAdapter{
+			ctx:   e.ctx,
+			index: externalIndex,
+			input: e.input,
 		}
 	} else {
 		// No external source matched, use compiler's rule index
@@ -2540,7 +2538,7 @@ func (e evalTree) next(iter unifyIterator, plugged *ast.Term) error {
 			if !hasRules && node != nil {
 				// Check if this path or any prefix has an external source
 				checkRef := cpy.plugged[:cpy.pos]
-				src, _ := e.e.compiler.GetExternalSource(checkRef)
+				src := e.e.compiler.GetExternalSource(checkRef)
 				hasExternalSource = src != nil
 			}
 

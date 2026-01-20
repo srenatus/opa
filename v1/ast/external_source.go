@@ -8,9 +8,17 @@ import (
 	"context"
 )
 
-// ExternalRuleSource provides rules lazily during evaluation.
 type ExternalRuleSource interface {
-	// GetRules returns rules for the package. The input parameter allows
+	Init(ctx context.Context) (ExternalRuleIndex, error)
+}
+
+type ExternalRuleIndex interface {
+	// Lookup returns rules optimized for a specific lookup context. The
+	// resolver parameter provides access to variable bindings and evaluation
+	// state, allowing advanced filtering when beneficial.
+	Lookup(ctx context.Context, input *Term, resolver ValueResolver) ([]*Rule, error)
+
+	// AllRules returns all rules for the package. The input parameter allows
 	// filtering to return only input-relevant rules.
-	GetRules(_ context.Context, input *Term) ([]*Rule, error)
+	AllRules(ctx context.Context, input *Term) ([]*Rule, error)
 }

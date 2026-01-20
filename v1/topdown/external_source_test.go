@@ -5,6 +5,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/open-policy-agent/opa/exp/sp"
 	"github.com/open-policy-agent/opa/v1/ast"
 	"github.com/open-policy-agent/opa/v1/storage/inmem"
 )
@@ -14,8 +15,22 @@ type countingExternalSource struct {
 	callCount int32
 }
 
-func (m *countingExternalSource) GetRules(ctx context.Context, input *ast.Term) ([]*ast.Rule, error) {
-	atomic.AddInt32(&m.callCount, 1)
+func (m *countingExternalSource) Init(context.Context) (ast.ExternalRuleIndex, error) {
+	return &countingExternalIndex{rules: m.rules, callCount: &m.callCount}, nil
+}
+
+type countingExternalIndex struct {
+	rules     []*ast.Rule
+	callCount *int32
+}
+
+func (m *countingExternalIndex) Lookup(ctx context.Context, input *ast.Term, resolver ast.ValueResolver) ([]*ast.Rule, error) {
+	atomic.AddInt32(m.callCount, 1)
+	return m.rules, nil
+}
+
+func (m *countingExternalIndex) AllRules(ctx context.Context, input *ast.Term) ([]*ast.Rule, error) {
+	atomic.AddInt32(m.callCount, 1)
 	return m.rules, nil
 }
 
@@ -27,7 +42,6 @@ func (m *countingExternalSource) resetCount() {
 	atomic.StoreInt32(&m.callCount, 0)
 }
 
-// compileExternalModule compiles a module for use with external sources
 func compileExternalModule(t *testing.T, module *ast.Module) *ast.Module {
 	t.Helper()
 	compiler := ast.NewCompiler()
@@ -38,7 +52,6 @@ func compileExternalModule(t *testing.T, module *ast.Module) *ast.Module {
 	return compiler.Modules["external.rego"]
 }
 
-// setupCompiler creates a compiler with external source and static module
 func setupCompiler(t *testing.T, packageRef ast.Ref, source ast.ExternalRuleSource, staticModule *ast.Module) *ast.Compiler {
 	t.Helper()
 	compiler := ast.NewCompiler()
@@ -54,11 +67,10 @@ func setupCompiler(t *testing.T, packageRef ast.Ref, source ast.ExternalRuleSour
 	return compiler
 }
 
-// runQuery executes a query and returns results
 func runQuery(t *testing.T, compiler *ast.Compiler, queryStr string, input *ast.Term) QueryResultSet {
 	t.Helper()
 	store := inmem.New()
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, err := store.NewTransaction(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -86,11 +98,12 @@ func TestExternalSourceE2ESimple(t *testing.T) {
 foo if true`)
 
 	source := &countingExternalSource{rules: externalModule.Rules}
+	cachedSource := sp.NewCachedSource(source)
 	staticModule := ast.MustParseModule(`package main
 result if data.test.foo`)
 
 	packageRef := ast.MustParseRef("data.test")
-	compiler := setupCompiler(t, packageRef, source, staticModule)
+	compiler := setupCompiler(t, packageRef, cachedSource, staticModule)
 
 	treeNode := compiler.RuleTree.Find(packageRef)
 	if treeNode == nil {
@@ -101,16 +114,13 @@ result if data.test.foo`)
 		t.Fatalf("Expected RuleIndex to return nil for external source path, got %v", idx)
 	}
 
-	src, ref := compiler.GetExternalSource(packageRef)
+	src := compiler.GetExternalSource(packageRef)
 	if src == nil {
 		t.Fatal("Expected GetExternalSource to return source")
 	}
-	if !ref.Equal(packageRef) {
-		t.Fatalf("Expected ref %v, got %v", packageRef, ref)
-	}
 
 	queryRef := ast.MustParseRef("data.test.foo")
-	if src2, _ := compiler.GetExternalSource(queryRef); src2 == nil {
+	if src2 := compiler.GetExternalSource(queryRef); src2 == nil {
 		t.Fatalf("GetExternalSource(%v) returned nil", queryRef)
 	}
 
@@ -139,12 +149,13 @@ allowed if {
 
 	compiledModule := compileExternalModule(t, externalModule)
 	source := &countingExternalSource{rules: compiledModule.Rules}
+	cachedSource := sp.NewCachedSource(source)
 
 	staticModule := ast.MustParseModule(`package main
 check if data.authz.allowed`)
 
 	packageRef := ast.MustParseRef("data.authz")
-	compiler := setupCompiler(t, packageRef, source, staticModule)
+	compiler := setupCompiler(t, packageRef, cachedSource, staticModule)
 
 	testCase := func(t *testing.T, inputJSON string, expectResults int) {
 		t.Helper()
@@ -187,11 +198,12 @@ result if {
 }`)
 
 	source := &countingExternalSource{rules: externalModule.Rules}
+	cachedSource := sp.NewCachedSource(source)
 	staticModule := ast.MustParseModule(`package main
 verify if data.test.result`)
 
 	packageRef := ast.MustParseRef("data.test")
-	compiler := setupCompiler(t, packageRef, source, staticModule)
+	compiler := setupCompiler(t, packageRef, cachedSource, staticModule)
 
 	input := ast.MustParseTerm(`{"a": 1, "b": 2, "c": 3}`)
 	qrs := runQuery(t, compiler, "data.main.verify", input)
@@ -248,12 +260,13 @@ allowed if {
 
 	compiledModule := compileExternalModule(t, externalModule)
 	source := &countingExternalSource{rules: compiledModule.Rules}
+	cachedSource := sp.NewCachedSource(source)
 
 	staticModule := ast.MustParseModule(`package main
 check if data.authz.allowed`)
 
 	packageRef := ast.MustParseRef("data.authz")
-	compiler := setupCompiler(t, packageRef, source, staticModule)
+	compiler := setupCompiler(t, packageRef, cachedSource, staticModule)
 
 	input := ast.MustParseTerm(`{"user": "alice", "action": "read"}`)
 	qrs := runQuery(t, compiler, "data.main.check", input)

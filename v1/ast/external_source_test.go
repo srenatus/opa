@@ -21,17 +21,27 @@ func newMockExternalSource(rules []*Rule) *mockExternalSource {
 	}
 }
 
-func (m *mockExternalSource) GetRules(ctx context.Context, input *Term) ([]*Rule, error) {
-	atomic.AddInt32(&m.callCount, 1)
+func (m *mockExternalSource) Init(context.Context) (ExternalRuleIndex, error) {
+	return &mockExternalIndex{rules: m.rules, callCount: &m.callCount}, nil
+}
+
+type mockExternalIndex struct {
+	rules     []*Rule
+	callCount *int32
+}
+
+func (m *mockExternalIndex) Lookup(ctx context.Context, input *Term, resolver ValueResolver) ([]*Rule, error) {
+	atomic.AddInt32(m.callCount, 1)
+	return m.rules, nil
+}
+
+func (m *mockExternalIndex) AllRules(ctx context.Context, input *Term) ([]*Rule, error) {
+	atomic.AddInt32(m.callCount, 1)
 	return m.rules, nil
 }
 
 func (m *mockExternalSource) getCallCount() int {
 	return int(atomic.LoadInt32(&m.callCount))
-}
-
-func (m *mockExternalSource) resetCallCount() {
-	atomic.StoreInt32(&m.callCount, 0)
 }
 
 func TestCompilerRuleIndexReturnsNilForExternalSources(t *testing.T) {
@@ -148,38 +158,6 @@ func TestIterateExternalSources(t *testing.T) {
 	}
 }
 
-func TestNewExternalSourceIndex(t *testing.T) {
-	rule1 := &Rule{
-		Head: &Head{
-			Reference: MustParseRef("data.test.foo"),
-			Value:     IntNumberTerm(1),
-		},
-		Body: NewBody(NewExpr(BooleanTerm(true))),
-	}
-
-	rule2 := &Rule{
-		Head: &Head{
-			Reference: MustParseRef("data.test.bar"),
-			Value:     IntNumberTerm(2),
-		},
-		Body: NewBody(NewExpr(BooleanTerm(true))),
-	}
-
-	compiler := NewCompiler()
-	compiler.Compile(map[string]*Module{})
-	rules := []*Rule{rule1, rule2}
-
-	index := compiler.NewExternalSourceIndex(rules)
-	if index == nil {
-		t.Fatal("Expected non-nil index from NewExternalSourceIndex")
-	}
-
-	emptyIndex := compiler.NewExternalSourceIndex([]*Rule{})
-	if emptyIndex != nil {
-		t.Error("Expected nil index for empty rule set")
-	}
-}
-
 func TestExternalSourceInputParameter(t *testing.T) {
 	var receivedInput *Term
 
@@ -203,9 +181,14 @@ func TestExternalSourceInputParameter(t *testing.T) {
 
 	testInput := ObjectTerm(Item(StringTerm("key"), StringTerm("value")))
 
-	rules, err := captureSource.GetRules(context.Background(), testInput)
+	index, err := captureSource.Init(t.Context())
 	if err != nil {
-		t.Fatalf("GetRules failed: %v", err)
+		t.Fatalf("Init failed: %v", err)
+	}
+
+	rules, err := index.AllRules(t.Context(), testInput)
+	if err != nil {
+		t.Fatalf("AllRules failed: %v", err)
 	}
 
 	if len(rules) == 0 {
@@ -300,9 +283,12 @@ func TestExternalSourceError(t *testing.T) {
 		t.Error("Expected nil RuleIndex for external source")
 	}
 
-	_, err := errorSource.GetRules(context.Background(), nil)
+	idx, err := errorSource.Init(t.Context())
 	if err == nil {
-		t.Error("Expected error from GetRules")
+		t.Error("Expected error from Init")
+	}
+	if idx != nil {
+		t.Error("Expected nil index from Init")
 	}
 }
 
@@ -311,7 +297,23 @@ type inputCapturingSource struct {
 	captureFunc func(*Term)
 }
 
-func (s *inputCapturingSource) GetRules(ctx context.Context, input *Term) ([]*Rule, error) {
+func (s *inputCapturingSource) Init(context.Context) (ExternalRuleIndex, error) {
+	return &inputCapturingIndex{rules: s.rules, captureFunc: s.captureFunc}, nil
+}
+
+type inputCapturingIndex struct {
+	rules       []*Rule
+	captureFunc func(*Term)
+}
+
+func (s *inputCapturingIndex) Lookup(ctx context.Context, input *Term, resolver ValueResolver) ([]*Rule, error) {
+	if s.captureFunc != nil {
+		s.captureFunc(input)
+	}
+	return s.rules, nil
+}
+
+func (s *inputCapturingIndex) AllRules(ctx context.Context, input *Term) ([]*Rule, error) {
 	if s.captureFunc != nil {
 		s.captureFunc(input)
 	}
@@ -322,6 +324,6 @@ type errorExternalSource struct {
 	err error
 }
 
-func (e *errorExternalSource) GetRules(ctx context.Context, input *Term) ([]*Rule, error) {
+func (e *errorExternalSource) Init(context.Context) (ExternalRuleIndex, error) {
 	return nil, e.err
 }

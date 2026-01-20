@@ -840,23 +840,19 @@ func (c *Compiler) RuleIndex(path Ref) RuleIndex {
 	return r
 }
 
-// GetExternalSource returns the external rule source that covers the given path,
-// along with the package reference at which it was registered. Returns (nil, nil)
-// if no external source is registered for this path.
+// GetExternalSource returns the external rule source that covers the given path.
+// Returns nil if no external source is registered for this path.
 //
 // This is used during evaluation to lazily fetch rules with input-specific filtering.
-func (c *Compiler) GetExternalSource(path Ref) (ExternalRuleSource, Ref) {
+func (c *Compiler) GetExternalSource(path Ref) ExternalRuleSource {
 	var matchedSource ExternalRuleSource
-	var matchedRef Ref
 	c.externalSources.Iter(func(pkgRef Ref, source ExternalRuleSource) bool {
 		if path.HasPrefix(pkgRef) {
-			matchedRef = pkgRef
 			matchedSource = source
-			return true // stop iteration
 		}
-		return false
+		return matchedSource != nil // stop iterating if we have one
 	})
-	return matchedSource, matchedRef
+	return matchedSource
 }
 
 // PassesTypeCheck determines whether the given body passes type checking
@@ -956,53 +952,6 @@ func (c *Compiler) IterateExternalSources(fn func(Ref, ExternalRuleSource) bool)
 	c.externalSources.Iter(fn)
 }
 
-// externalSourceIndex is a simple RuleIndex that returns all rules without indexing.
-// External sources are expected to pre-filter rules based on input, so additional
-// indexing is unnecessary.
-type externalSourceIndex struct {
-	result *IndexResult
-}
-
-func (e *externalSourceIndex) Build(rules []*Rule) bool {
-	if len(rules) == 0 {
-		return false
-	}
-
-	// Determine rule kind from first rule
-	kind := rules[0].Head.RuleKind()
-
-	e.result = &IndexResult{
-		Rules:          rules,
-		Else:           make(map[*Rule][]*Rule),
-		Kind:           kind,
-		EarlyExit:      false,
-		OnlyGroundRefs: false, // TODO(sr): Why?
-	}
-	return true
-}
-
-func (e *externalSourceIndex) Lookup(resolver ValueResolver) (*IndexResult, error) {
-	return e.result, nil
-}
-
-func (e *externalSourceIndex) AllRules(resolver ValueResolver) (*IndexResult, error) {
-	return e.result, nil
-}
-
-// NewExternalSourceIndex creates a simple RuleIndex for externally-sourced rules.
-// The index returns all rules without optimization, as external sources are expected
-// to pre-filter rules based on input.
-func (c *Compiler) NewExternalSourceIndex(rules []*Rule) RuleIndex {
-	if len(rules) == 0 {
-		return nil
-	}
-	index := &externalSourceIndex{}
-	if !index.Build(rules) {
-		return nil
-	}
-	return index
-}
-
 // WithDefaultRegoVersion sets the default Rego version to use when a module doesn't specify one;
 // such as when it's hand-crafted instead of parsed.
 func (c *Compiler) WithDefaultRegoVersion(regoVersion RegoVersion) *Compiler {
@@ -1051,7 +1000,7 @@ func (c *Compiler) buildRuleIndices() {
 				return true
 			}
 			// Check if it's covered by a registered external source
-			source, _ := c.GetExternalSource(groundPrefix)
+			source := c.GetExternalSource(groundPrefix)
 			return source != nil
 		})
 		if index.Build(rules) {
