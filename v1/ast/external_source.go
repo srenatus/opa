@@ -9,7 +9,11 @@ import (
 )
 
 type ExternalRuleSource interface {
-	Init(ctx context.Context) (ExternalRuleIndex, error)
+	// Refs returns the package refs that this source provides rules for.
+	// A source can provide rules for multiple packages.
+	Refs() []Ref
+
+	Init(context.Context) (ExternalRuleIndex, error)
 }
 
 type ExternalRuleIndex interface {

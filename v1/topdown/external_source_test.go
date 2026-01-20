@@ -11,8 +11,13 @@ import (
 )
 
 type countingExternalSource struct {
+	refs      []ast.Ref
 	rules     []*ast.Rule
 	callCount int32
+}
+
+func (m *countingExternalSource) Refs() []ast.Ref {
+	return m.refs
 }
 
 func (m *countingExternalSource) Init(context.Context) (ast.ExternalRuleIndex, error) {
@@ -97,12 +102,12 @@ func TestExternalSourceE2ESimple(t *testing.T) {
 	externalModule := ast.MustParseModule(`package test
 foo if true`)
 
-	source := &countingExternalSource{rules: externalModule.Rules}
+	packageRef := ast.MustParseRef("data.test")
+	source := &countingExternalSource{refs: []ast.Ref{packageRef}, rules: externalModule.Rules}
 	cachedSource := sp.NewCachedSource(source)
 	staticModule := ast.MustParseModule(`package main
 result if data.test.foo`)
 
-	packageRef := ast.MustParseRef("data.test")
 	compiler := setupCompiler(t, packageRef, cachedSource, staticModule)
 
 	treeNode := compiler.RuleTree.Find(packageRef)
@@ -147,14 +152,14 @@ allowed if {
 	not deny
 }`)
 
+	packageRef := ast.MustParseRef("data.authz")
 	compiledModule := compileExternalModule(t, externalModule)
-	source := &countingExternalSource{rules: compiledModule.Rules}
+	source := &countingExternalSource{refs: []ast.Ref{packageRef}, rules: compiledModule.Rules}
 	cachedSource := sp.NewCachedSource(source)
 
 	staticModule := ast.MustParseModule(`package main
 check if data.authz.allowed`)
 
-	packageRef := ast.MustParseRef("data.authz")
 	compiler := setupCompiler(t, packageRef, cachedSource, staticModule)
 
 	testCase := func(t *testing.T, inputJSON string, expectResults int) {
@@ -197,12 +202,12 @@ result if {
 	check3
 }`)
 
-	source := &countingExternalSource{rules: externalModule.Rules}
+	packageRef := ast.MustParseRef("data.test")
+	source := &countingExternalSource{refs: []ast.Ref{packageRef}, rules: externalModule.Rules}
 	cachedSource := sp.NewCachedSource(source)
 	staticModule := ast.MustParseModule(`package main
 verify if data.test.result`)
 
-	packageRef := ast.MustParseRef("data.test")
 	compiler := setupCompiler(t, packageRef, cachedSource, staticModule)
 
 	input := ast.MustParseTerm(`{"a": 1, "b": 2, "c": 3}`)
@@ -223,8 +228,9 @@ func TestExternalSourceE2EWithInputOverride(t *testing.T) {
 	externalModule := ast.MustParseModule(`package authz
 allowed if input.user == "alice"`)
 
+	packageRef := ast.MustParseRef("data.authz")
 	compiledModule := compileExternalModule(t, externalModule)
-	source := &countingExternalSource{rules: compiledModule.Rules}
+	source := &countingExternalSource{refs: []ast.Ref{packageRef}, rules: compiledModule.Rules}
 
 	staticModule := ast.MustParseModule(`package main
 check if {
@@ -232,7 +238,6 @@ check if {
 	data.authz.allowed with input as {"user": "bob"}
 }`)
 
-	packageRef := ast.MustParseRef("data.authz")
 	compiler := setupCompiler(t, packageRef, source, staticModule)
 
 	input := ast.MustParseTerm(`{"user": "alice"}`)
@@ -258,14 +263,14 @@ allowed if {
 	not deny
 }`)
 
+	packageRef := ast.MustParseRef("data.authz")
 	compiledModule := compileExternalModule(t, externalModule)
-	source := &countingExternalSource{rules: compiledModule.Rules}
+	source := &countingExternalSource{refs: []ast.Ref{packageRef}, rules: compiledModule.Rules}
 	cachedSource := sp.NewCachedSource(source)
 
 	staticModule := ast.MustParseModule(`package main
 check if data.authz.allowed`)
 
-	packageRef := ast.MustParseRef("data.authz")
 	compiler := setupCompiler(t, packageRef, cachedSource, staticModule)
 
 	input := ast.MustParseTerm(`{"user": "alice", "action": "read"}`)
@@ -286,8 +291,9 @@ func TestExternalSourceE2EWithInputOverrideViaStaticRule(t *testing.T) {
 	externalModule := ast.MustParseModule(`package authz
 allowed if input.user == "alice"`)
 
+	packageRef := ast.MustParseRef("data.authz")
 	compiledModule := compileExternalModule(t, externalModule)
-	source := &countingExternalSource{rules: compiledModule.Rules}
+	source := &countingExternalSource{refs: []ast.Ref{packageRef}, rules: compiledModule.Rules}
 
 	staticModule := ast.MustParseModule(`package main
 allow if {
@@ -295,7 +301,6 @@ allow if {
 	data.authz.allowed with input as {"user": "bob"}
 }`)
 
-	packageRef := ast.MustParseRef("data.authz")
 	compiler := setupCompiler(t, packageRef, source, staticModule)
 
 	input := ast.MustParseTerm(`{"user": "alice"}`)

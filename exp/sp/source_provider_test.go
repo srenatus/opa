@@ -17,7 +17,8 @@ func TestMockSource(t *testing.T) {
 		ast.MustParseRule(`q { true }`),
 	}
 
-	source := &mockSource{rules: rules}
+	refs := []ast.Ref{ast.MustParseRef("data.test")}
+	source := &mockSource{refs: refs, rules: rules}
 
 	ctx := t.Context()
 	input := ast.NullTerm()
@@ -48,7 +49,12 @@ func TestMockSource(t *testing.T) {
 }
 
 type mockSource struct {
+	refs  []ast.Ref
 	rules []*ast.Rule
+}
+
+func (m *mockSource) Refs() []ast.Ref {
+	return m.refs
 }
 
 func (m *mockSource) Init(context.Context) (ast.ExternalRuleIndex, error) {

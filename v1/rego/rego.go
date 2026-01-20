@@ -658,6 +658,7 @@ type Rego struct {
 	strictBuiltinErrors         bool
 	builtinErrorList            *[]topdown.Error
 	resolvers                   []refResolver
+	externalSources             []ast.ExternalRuleSource
 	schemaSet                   *ast.SchemaSet
 	target                      string // target type (wasm, rego, etc.)
 	opa                         opa.EvalEngine
@@ -1271,6 +1272,15 @@ func BuiltinErrorList(list *[]topdown.Error) func(r *Rego) {
 func Resolver(ref ast.Ref, r resolver.Resolver) func(r *Rego) {
 	return func(rego *Rego) {
 		rego.resolvers = append(rego.resolvers, refResolver{ref, r})
+	}
+}
+
+// ExternalSource adds an external rule source that provides rules dynamically.
+// The source declares which package refs it handles via its Refs() method.
+// A single source can provide rules for multiple packages.
+func ExternalSource(source ast.ExternalRuleSource) func(r *Rego) {
+	return func(rego *Rego) {
+		rego.externalSources = append(rego.externalSources, source)
 	}
 }
 
@@ -2159,6 +2169,14 @@ func (r *Rego) compileModules(ctx context.Context, txn storage.Transaction, m me
 		err := bundle.Activate(opts)
 		if err != nil {
 			return err
+		}
+	}
+
+	// Apply external sources to the compiler
+	for i := range r.externalSources {
+		source := r.externalSources[i]
+		for _, ref := range source.Refs() {
+			r.compiler.WithExternalSource(ref, source)
 		}
 	}
 

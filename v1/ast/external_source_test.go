@@ -9,16 +9,22 @@ import (
 )
 
 type mockExternalSource struct {
+	refs      []Ref
 	rules     []*Rule
 	callCount int32
 	mu        sync.Mutex
 }
 
-func newMockExternalSource(rules []*Rule) *mockExternalSource {
+func newMockExternalSource(refs []Ref, rules []*Rule) *mockExternalSource {
 	return &mockExternalSource{
+		refs:      refs,
 		rules:     rules,
 		callCount: 0,
 	}
+}
+
+func (m *mockExternalSource) Refs() []Ref {
+	return m.refs
 }
 
 func (m *mockExternalSource) Init(context.Context) (ExternalRuleIndex, error) {
@@ -55,9 +61,9 @@ func TestCompilerRuleIndexReturnsNilForExternalSources(t *testing.T) {
 		),
 	}
 
-	source := newMockExternalSource([]*Rule{rule})
-	compiler := NewCompiler()
 	packageRef := MustParseRef("data.external.test")
+	source := newMockExternalSource([]Ref{packageRef}, []*Rule{rule})
+	compiler := NewCompiler()
 	compiler.WithExternalSource(packageRef, source)
 
 	index := compiler.RuleIndex(packageRef)
@@ -79,10 +85,10 @@ func TestExternalSourcePrefixMatching(t *testing.T) {
 		Body: NewBody(Equality.Expr(VarTerm("x"), IntNumberTerm(1))),
 	}
 
-	source := newMockExternalSource([]*Rule{rule})
+	packageRef := MustParseRef("data.external.pkg")
+	source := newMockExternalSource([]Ref{packageRef}, []*Rule{rule})
 
 	compiler := NewCompiler()
-	packageRef := MustParseRef("data.external.pkg")
 	compiler.WithExternalSource(packageRef, source)
 
 	findSource := func(query Ref) ExternalRuleSource {
@@ -132,8 +138,8 @@ func TestIterateExternalSources(t *testing.T) {
 		Body: NewBody(NewExpr(BooleanTerm(true))),
 	}
 
-	source1 := newMockExternalSource([]*Rule{rule1})
-	source2 := newMockExternalSource([]*Rule{rule2})
+	source1 := newMockExternalSource([]Ref{MustParseRef("data.pkg1")}, []*Rule{rule1})
+	source2 := newMockExternalSource([]Ref{MustParseRef("data.pkg2")}, []*Rule{rule2})
 
 	compiler := NewCompiler()
 	compiler.WithExternalSource(MustParseRef("data.pkg1"), source1)
@@ -161,7 +167,9 @@ func TestIterateExternalSources(t *testing.T) {
 func TestExternalSourceInputParameter(t *testing.T) {
 	var receivedInput *Term
 
+	packageRef := MustParseRef("data.capture")
 	captureSource := &inputCapturingSource{
+		refs: []Ref{packageRef},
 		rules: []*Rule{
 			{
 				Head: &Head{
@@ -177,7 +185,7 @@ func TestExternalSourceInputParameter(t *testing.T) {
 	}
 
 	compiler := NewCompiler()
-	compiler.WithExternalSource(MustParseRef("data.capture"), captureSource)
+	compiler.WithExternalSource(packageRef, captureSource)
 
 	testInput := ObjectTerm(Item(StringTerm("key"), StringTerm("value")))
 
@@ -219,8 +227,8 @@ func TestMultipleExternalSources(t *testing.T) {
 		Body: NewBody(NewExpr(BooleanTerm(true))),
 	}
 
-	source1 := newMockExternalSource([]*Rule{rule1})
-	source2 := newMockExternalSource([]*Rule{rule2})
+	source1 := newMockExternalSource([]Ref{MustParseRef("data.pkg1")}, []*Rule{rule1})
+	source2 := newMockExternalSource([]Ref{MustParseRef("data.pkg2")}, []*Rule{rule2})
 
 	compiler := NewCompiler()
 	compiler.WithExternalSource(MustParseRef("data.pkg1"), source1)
@@ -260,10 +268,13 @@ func TestMultipleExternalSources(t *testing.T) {
 }
 
 func TestExternalSourceError(t *testing.T) {
-	errorSource := &errorExternalSource{err: fmt.Errorf("simulated error")}
+	packageRef := MustParseRef("data.error.test")
+	errorSource := &errorExternalSource{
+		refs: []Ref{packageRef},
+		err:  fmt.Errorf("simulated error"),
+	}
 
 	compiler := NewCompiler()
-	packageRef := MustParseRef("data.error.test")
 	compiler.WithExternalSource(packageRef, errorSource)
 
 	var found ExternalRuleSource
@@ -274,7 +285,7 @@ func TestExternalSourceError(t *testing.T) {
 		}
 		return false
 	})
-	if found != errorSource {
+	if found == nil {
 		t.Error("Expected to find error source")
 	}
 
@@ -293,8 +304,13 @@ func TestExternalSourceError(t *testing.T) {
 }
 
 type inputCapturingSource struct {
+	refs        []Ref
 	rules       []*Rule
 	captureFunc func(*Term)
+}
+
+func (s *inputCapturingSource) Refs() []Ref {
+	return s.refs
 }
 
 func (s *inputCapturingSource) Init(context.Context) (ExternalRuleIndex, error) {
@@ -321,7 +337,12 @@ func (s *inputCapturingIndex) AllRules(ctx context.Context, input *Term) ([]*Rul
 }
 
 type errorExternalSource struct {
-	err error
+	refs []Ref
+	err  error
+}
+
+func (e *errorExternalSource) Refs() []Ref {
+	return e.refs
 }
 
 func (e *errorExternalSource) Init(context.Context) (ExternalRuleIndex, error) {

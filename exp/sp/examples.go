@@ -12,11 +12,16 @@ import (
 )
 
 type StaticSource struct {
+	refs  []ast.Ref
 	rules []*ast.Rule
 }
 
-func NewStaticSource(rules []*ast.Rule) *StaticSource {
-	return &StaticSource{rules: rules}
+func NewStaticSource(refs []ast.Ref, rules []*ast.Rule) *StaticSource {
+	return &StaticSource{refs: refs, rules: rules}
+}
+
+func (s *StaticSource) Refs() []ast.Ref {
+	return s.refs
 }
 
 func (s *StaticSource) Init(context.Context) (ast.ExternalRuleIndex, error) {
@@ -36,15 +41,21 @@ func (s *staticIndex) AllRules(context.Context, *ast.Term) ([]*ast.Rule, error) 
 }
 
 type FilteredSource struct {
+	refs     []ast.Ref
 	allRules []*ast.Rule
 	filter   func(*ast.Term, *ast.Rule) bool
 }
 
-func NewFilteredSource(rules []*ast.Rule, filter func(*ast.Term, *ast.Rule) bool) *FilteredSource {
+func NewFilteredSource(refs []ast.Ref, rules []*ast.Rule, filter func(*ast.Term, *ast.Rule) bool) *FilteredSource {
 	return &FilteredSource{
+		refs:     refs,
 		allRules: rules,
 		filter:   filter,
 	}
+}
+
+func (s *FilteredSource) Refs() []ast.Ref {
+	return s.refs
 }
 
 func (s *FilteredSource) Init(context.Context) (ast.ExternalRuleIndex, error) {
@@ -75,15 +86,21 @@ func (s *filteredIndex) AllRules(_ context.Context, input *ast.Term) ([]*ast.Rul
 }
 
 type IndexedSource struct {
+	refs     []ast.Ref
 	allRules []*ast.Rule
 	lookup   func(*ast.Term, ast.ValueResolver, *ast.Rule) bool
 }
 
-func NewIndexedSource(rules []*ast.Rule, lookup func(*ast.Term, ast.ValueResolver, *ast.Rule) bool) *IndexedSource {
+func NewIndexedSource(refs []ast.Ref, rules []*ast.Rule, lookup func(*ast.Term, ast.ValueResolver, *ast.Rule) bool) *IndexedSource {
 	return &IndexedSource{
+		refs:     refs,
 		allRules: rules,
 		lookup:   lookup,
 	}
+}
+
+func (s *IndexedSource) Refs() []ast.Ref {
+	return s.refs
 }
 
 func (s *IndexedSource) Init(context.Context) (ast.ExternalRuleIndex, error) {
@@ -114,14 +131,19 @@ func (s *indexedIndex) AllRules(context.Context, *ast.Term) ([]*ast.Rule, error)
 }
 
 type ErrorSource struct {
-	err error
+	refs []ast.Ref
+	err  error
 }
 
-func NewErrorSource(err error) *ErrorSource {
+func NewErrorSource(refs []ast.Ref, err error) *ErrorSource {
 	if err == nil {
 		err = fmt.Errorf("error source")
 	}
-	return &ErrorSource{err: err}
+	return &ErrorSource{refs: refs, err: err}
+}
+
+func (s *ErrorSource) Refs() []ast.Ref {
+	return s.refs
 }
 
 func (s *ErrorSource) Init(context.Context) (ast.ExternalRuleIndex, error) {

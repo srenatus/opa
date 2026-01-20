@@ -24,6 +24,10 @@ func NewCachedSource(underlying ast.ExternalRuleSource) *CachedSource {
 	}
 }
 
+func (c *CachedSource) Refs() []ast.Ref {
+	return c.underlying.Refs()
+}
+
 func (c *CachedSource) Init(ctx context.Context) (ast.ExternalRuleIndex, error) {
 	index, err := c.underlying.Init(ctx)
 	if err != nil {

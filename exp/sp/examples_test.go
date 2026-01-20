@@ -17,7 +17,8 @@ func TestStaticSource(t *testing.T) {
 		ast.MustParseRule(`q { true }`),
 	}
 
-	source := NewStaticSource(rules)
+	refs := []ast.Ref{ast.MustParseRef("data.test")}
+	source := NewStaticSource(refs, rules)
 
 	ctx := t.Context()
 	input := ast.NullTerm()
@@ -59,7 +60,8 @@ func TestFilteredSource(t *testing.T) {
 		return name == "p" || name == "q"
 	}
 
-	source := NewFilteredSource(rules, filter)
+	refs := []ast.Ref{ast.MustParseRef("data.test")}
+	source := NewFilteredSource(refs, rules, filter)
 
 	ctx := t.Context()
 	input := ast.NullTerm()
@@ -114,7 +116,8 @@ func TestFilteredSource_InputBasedFiltering(t *testing.T) {
 		return true
 	}
 
-	source := NewFilteredSource(rules, filter)
+	refs := []ast.Ref{ast.MustParseRef("data.test")}
+	source := NewFilteredSource(refs, rules, filter)
 	ctx := t.Context()
 
 	index, err := source.Init(ctx)
@@ -161,7 +164,8 @@ func TestIndexedSource(t *testing.T) {
 		return true
 	}
 
-	source := NewIndexedSource(rules, lookup)
+	refs := []ast.Ref{ast.MustParseRef("data.test")}
+	source := NewIndexedSource(refs, rules, lookup)
 
 	ctx := t.Context()
 	input := ast.NullTerm()
@@ -203,7 +207,8 @@ func TestIndexedSource_SelectiveFiltering(t *testing.T) {
 		return len(name) == 1
 	}
 
-	source := NewIndexedSource(rules, lookup)
+	refs := []ast.Ref{ast.MustParseRef("data.test")}
+	source := NewIndexedSource(refs, rules, lookup)
 	ctx := t.Context()
 	input := ast.NullTerm()
 
@@ -234,7 +239,8 @@ func TestIndexedSource_SelectiveFiltering(t *testing.T) {
 
 func TestErrorSource(t *testing.T) {
 	expectedErr := fmt.Errorf("test error")
-	source := NewErrorSource(expectedErr)
+	refs := []ast.Ref{ast.MustParseRef("data.test")}
+	source := NewErrorSource(refs, expectedErr)
 
 	ctx := t.Context()
 
@@ -262,7 +268,8 @@ func TestErrorSource(t *testing.T) {
 }
 
 func TestErrorSource_NilError(t *testing.T) {
-	source := NewErrorSource(nil)
+	refs := []ast.Ref{ast.MustParseRef("data.test")}
+	source := NewErrorSource(refs, nil)
 
 	ctx := t.Context()
 	_, err := source.Init(ctx)

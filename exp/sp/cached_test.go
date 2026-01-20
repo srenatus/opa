@@ -13,8 +13,13 @@ import (
 )
 
 type countingSource struct {
+	refs      []ast.Ref
 	rules     []*ast.Rule
 	callCount int32
+}
+
+func (c *countingSource) Refs() []ast.Ref {
+	return c.refs
 }
 
 func (c *countingSource) Init(context.Context) (ast.ExternalRuleIndex, error) {
@@ -47,7 +52,7 @@ func TestCachedSource_AllRules(t *testing.T) {
 	module := ast.MustParseModule(`package test
 p if true`)
 
-	underlying := &countingSource{rules: module.Rules}
+	underlying := &countingSource{refs: []ast.Ref{ast.MustParseRef("data.test")}, rules: module.Rules}
 	cached := NewCachedSource(underlying)
 
 	index, err := cached.Init(ctx)
@@ -113,7 +118,7 @@ func TestCachedSource_Lookup(t *testing.T) {
 	module := ast.MustParseModule(`package test
 p if true`)
 
-	underlying := &countingSource{rules: module.Rules}
+	underlying := &countingSource{refs: []ast.Ref{ast.MustParseRef("data.test")}, rules: module.Rules}
 	cached := NewCachedSource(underlying)
 
 	index, err := cached.Init(ctx)
