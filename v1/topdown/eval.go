@@ -91,7 +91,7 @@ func (e *externalRuleIndexAdapter) Lookup(resolver ast.ValueResolver) (*ast.Inde
 }
 
 func (e *externalRuleIndexAdapter) AllRules(resolver ast.ValueResolver) (*ast.IndexResult, error) {
-	rules, err := e.index.AllRules(e.ctx, e.ref, e.input)
+	rules, err := e.index.AllRules(e.ctx, e.ref, e.input) // TODO(sr): The RI-analogue would be not to pass input. Do we care?
 	if err != nil {
 		return nil, err
 	}
@@ -2543,6 +2543,7 @@ func (e evalTree) next(iter unifyIterator, plugged *ast.Term) error {
 				src := e.e.compiler.GetExternalSource(checkRef)
 				hasExternalSource = src != nil
 			}
+			// TODO(sr): Cleanup! Can we register external sources into the RuleTree more properly?
 
 			if hasRules || hasExternalSource {
 				r := evalVirtual{
