@@ -23,42 +23,84 @@ func (m *countingExternalSource) getCallCount() int {
 	return int(atomic.LoadInt32(&m.callCount))
 }
 
+func (m *countingExternalSource) resetCount() {
+	atomic.StoreInt32(&m.callCount, 0)
+}
+
+// compileExternalModule compiles a module for use with external sources
+func compileExternalModule(t *testing.T, module *ast.Module) *ast.Module {
+	t.Helper()
+	compiler := ast.NewCompiler()
+	compiler.Compile(map[string]*ast.Module{"external.rego": module})
+	if compiler.Failed() {
+		t.Fatalf("Module compilation failed: %v", compiler.Errors)
+	}
+	return compiler.Modules["external.rego"]
+}
+
+// setupCompiler creates a compiler with external source and static module
+func setupCompiler(t *testing.T, packageRef ast.Ref, source ast.ExternalRuleSource, staticModule *ast.Module) *ast.Compiler {
+	t.Helper()
+	compiler := ast.NewCompiler()
+	compiler.WithExternalSource(packageRef, source)
+	modules := map[string]*ast.Module{}
+	if staticModule != nil {
+		modules["main.rego"] = staticModule
+	}
+	compiler.Compile(modules)
+	if compiler.Failed() {
+		t.Fatalf("Compiler failed: %v", compiler.Errors)
+	}
+	return compiler
+}
+
+// runQuery executes a query and returns results
+func runQuery(t *testing.T, compiler *ast.Compiler, queryStr string, input *ast.Term) QueryResultSet {
+	t.Helper()
+	store := inmem.New()
+	ctx := context.Background()
+	txn, err := store.NewTransaction(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Abort(ctx, txn)
+
+	query := ast.MustParseBody(queryStr)
+	q := NewQuery(query).
+		WithCompiler(compiler).
+		WithStore(store).
+		WithTransaction(txn).
+		WithInput(input)
+
+	qrs, err := q.Run(ctx)
+	if err != nil {
+		t.Fatalf("Query failed: %v", err)
+	}
+	return qrs
+}
+
 func TestExternalSourceE2ESimple(t *testing.T) {
 	t.Parallel()
 
-	// Simple test: single rule that always succeeds
-	module := ast.MustParseModule(`package test
-
+	externalModule := ast.MustParseModule(`package test
 foo if true`)
 
-	// No need to set Head.Reference for simple rules
-	// The rule name is sufficient, and rule.Ref() will combine
-	// Package.Path with the rule name automatically
+	source := &countingExternalSource{rules: externalModule.Rules}
+	staticModule := ast.MustParseModule(`package main
+result if data.test.foo`)
 
-	source := &countingExternalSource{
-		rules:     module.Rules,
-		callCount: 0,
-	}
-
-	compiler := ast.NewCompiler()
 	packageRef := ast.MustParseRef("data.test")
-	compiler.WithExternalSource(packageRef, source)
-	compiler.Compile(map[string]*ast.Module{})
+	compiler := setupCompiler(t, packageRef, source, staticModule)
 
-	// Check that the tree node was added
 	treeNode := compiler.RuleTree.Find(packageRef)
 	if treeNode == nil {
 		t.Fatal("Expected RuleTree to have node for external source path")
 	}
-	t.Logf("TreeNode found: Children=%d, Values=%d", len(treeNode.Children), len(treeNode.Values))
 
-	// Verify RuleIndex returns nil for external source path
-	idx := compiler.RuleIndex(packageRef)
-	if idx != nil {
+	if idx := compiler.RuleIndex(packageRef); idx != nil {
 		t.Fatalf("Expected RuleIndex to return nil for external source path, got %v", idx)
 	}
 
-	// Verify GetExternalSource works
 	src, ref := compiler.GetExternalSource(packageRef)
 	if src == nil {
 		t.Fatal("Expected GetExternalSource to return source")
@@ -67,54 +109,27 @@ foo if true`)
 		t.Fatalf("Expected ref %v, got %v", packageRef, ref)
 	}
 
-	// Check what getRules would find
 	queryRef := ast.MustParseRef("data.test.foo")
-	src2, ref2 := compiler.GetExternalSource(queryRef)
-	if src2 == nil {
-		t.Fatalf("GetExternalSource(%v) returned nil, but expected to match", queryRef)
+	if src2, _ := compiler.GetExternalSource(queryRef); src2 == nil {
+		t.Fatalf("GetExternalSource(%v) returned nil", queryRef)
 	}
-	t.Logf("GetExternalSource(%v) matched ref %v", queryRef, ref2)
 
 	input := ast.MustParseTerm(`{}`)
-	store := inmem.New()
-	ctx := context.Background()
-	txn, err := store.NewTransaction(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Abort(ctx, txn)
-
-	query := ast.MustParseBody("data.test.foo")
-	q := NewQuery(query).
-		WithCompiler(compiler).
-		WithStore(store).
-		WithTransaction(txn).
-		WithInput(input)
-
-	qrs, err := q.Run(ctx)
-	if err != nil {
-		t.Fatalf("Query failed: %v", err)
-	}
-
-	t.Logf("Query results: %d", len(qrs))
-	t.Logf("External source call count: %d", source.getCallCount())
+	qrs := runQuery(t, compiler, "data.main.result", input)
 
 	if len(qrs) != 1 {
-		t.Fatalf("Expected 1 result, got %d. External source was called %d times", len(qrs), source.getCallCount())
+		t.Fatalf("Expected 1 result, got %d", len(qrs))
 	}
 
-	callCount := source.getCallCount()
-	if callCount != 1 {
-		t.Errorf("Expected external source to be called exactly ONCE, got %d calls", callCount)
+	if callCount := source.getCallCount(); callCount != 1 {
+		t.Errorf("Expected external source to be called once, got %d calls", callCount)
 	}
 }
 
 func TestExternalSourceE2EWithDependencies(t *testing.T) {
 	t.Parallel()
 
-	// Parse and compile the module so refs are properly resolved
-	module := ast.MustParseModule(`package authz
-
+	externalModule := ast.MustParseModule(`package authz
 allow if input.user == "alice"
 deny if input.action == "delete"
 allowed if {
@@ -122,193 +137,71 @@ allowed if {
 	not deny
 }`)
 
-	// Compile the module to resolve cross-references between rules
-	tempCompiler := ast.NewCompiler()
-	tempCompiler.Compile(map[string]*ast.Module{"test.rego": module})
-	if tempCompiler.Failed() {
-		t.Fatalf("Module compilation failed: %v", tempCompiler.Errors)
-	}
+	compiledModule := compileExternalModule(t, externalModule)
+	source := &countingExternalSource{rules: compiledModule.Rules}
 
-	// Use the compiled module which has fully qualified refs
-	compiledModule := tempCompiler.Modules["test.rego"]
+	staticModule := ast.MustParseModule(`package main
+check if data.authz.allowed`)
 
-	source := &countingExternalSource{
-		rules:     compiledModule.Rules,
-		callCount: 0,
-	}
-
-	compiler := ast.NewCompiler()
 	packageRef := ast.MustParseRef("data.authz")
-	compiler.WithExternalSource(packageRef, source)
-	compiler.Compile(map[string]*ast.Module{})
+	compiler := setupCompiler(t, packageRef, source, staticModule)
 
-	// Test case 1: user=alice, action=read -> should allow
-	testCase1 := func(t *testing.T) {
+	testCase := func(t *testing.T, inputJSON string, expectResults int) {
 		t.Helper()
-		source.callCount = 0 // Reset counter
+		source.resetCount()
 
-		input := ast.MustParseTerm(`{"user": "alice", "action": "read"}`)
-		store := inmem.New()
-		ctx := context.Background()
-		txn, err := store.NewTransaction(ctx)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer store.Abort(ctx, txn)
+		input := ast.MustParseTerm(inputJSON)
+		qrs := runQuery(t, compiler, "data.main.check", input)
 
-		query := ast.MustParseBody("data.authz.allowed")
-		q := NewQuery(query).
-			WithCompiler(compiler).
-			WithStore(store).
-			WithTransaction(txn).
-			WithInput(input)
-
-		qrs, err := q.Run(ctx)
-		if err != nil {
-			t.Fatalf("Query failed: %v", err)
+		if len(qrs) != expectResults {
+			t.Fatalf("Expected %d result(s), got %d", expectResults, len(qrs))
 		}
 
-		if len(qrs) != 1 {
-			t.Fatalf("Expected 1 result, got %d", len(qrs))
-		}
-
-		callCount := source.getCallCount()
-		if callCount != 1 {
-			t.Errorf("Expected external source to be called exactly ONCE, got %d calls", callCount)
+		if callCount := source.getCallCount(); callCount != 1 {
+			t.Errorf("Expected external source to be called once, got %d calls", callCount)
 		}
 	}
 
-	// Test case 2: user=alice, action=delete -> should deny
-	testCase2 := func(t *testing.T) {
-		t.Helper()
-		source.callCount = 0 // Reset counter
-
-		input := ast.MustParseTerm(`{"user": "alice", "action": "delete"}`)
-		store := inmem.New()
-		ctx := context.Background()
-		txn, err := store.NewTransaction(ctx)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer store.Abort(ctx, txn)
-
-		query := ast.MustParseBody("data.authz.allowed")
-		q := NewQuery(query).
-			WithCompiler(compiler).
-			WithStore(store).
-			WithTransaction(txn).
-			WithInput(input)
-
-		qrs, err := q.Run(ctx)
-		if err != nil {
-			t.Fatalf("Query failed: %v", err)
-		}
-
-		if len(qrs) != 0 {
-			t.Fatalf("Expected 0 results (denied), got %d", len(qrs))
-		}
-
-		callCount := source.getCallCount()
-		if callCount != 1 {
-			t.Errorf("Expected external source to be called exactly ONCE, got %d calls", callCount)
-		}
-	}
-
-	// Test case 3: user=bob, action=read -> should deny (user not allowed)
-	testCase3 := func(t *testing.T) {
-		t.Helper()
-		source.callCount = 0 // Reset counter
-
-		input := ast.MustParseTerm(`{"user": "bob", "action": "read"}`)
-		store := inmem.New()
-		ctx := context.Background()
-		txn, err := store.NewTransaction(ctx)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer store.Abort(ctx, txn)
-
-		query := ast.MustParseBody("data.authz.allowed")
-		q := NewQuery(query).
-			WithCompiler(compiler).
-			WithStore(store).
-			WithTransaction(txn).
-			WithInput(input)
-
-		qrs, err := q.Run(ctx)
-		if err != nil {
-			t.Fatalf("Query failed: %v", err)
-		}
-
-		if len(qrs) != 0 {
-			t.Fatalf("Expected 0 results (user not allowed), got %d", len(qrs))
-		}
-
-		callCount := source.getCallCount()
-		if callCount != 1 {
-			t.Errorf("Expected external source to be called exactly ONCE, got %d calls", callCount)
-		}
-	}
-
-	t.Run("alice_read_allowed", testCase1)
-	t.Run("alice_delete_denied", testCase2)
-	t.Run("bob_read_denied", testCase3)
+	t.Run("alice_read_allowed", func(t *testing.T) {
+		testCase(t, `{"user": "alice", "action": "read"}`, 1)
+	})
+	t.Run("alice_delete_denied", func(t *testing.T) {
+		testCase(t, `{"user": "alice", "action": "delete"}`, 0)
+	})
+	t.Run("bob_read_denied", func(t *testing.T) {
+		testCase(t, `{"user": "bob", "action": "read"}`, 0)
+	})
 }
 
 func TestExternalSourceE2EMultipleRefs(t *testing.T) {
 	t.Parallel()
 
-	// Parse rules from Rego
-	module := ast.MustParseModule(`package test
-
+	externalModule := ast.MustParseModule(`package test
 check1 if input.a == 1
 check2 if input.b == 2
 check3 if input.c == 3
-
 result if {
 	check1
 	check2
 	check3
 }`)
 
-	source := &countingExternalSource{
-		rules:     module.Rules,
-		callCount: 0,
-	}
+	source := &countingExternalSource{rules: externalModule.Rules}
+	staticModule := ast.MustParseModule(`package main
+verify if data.test.result`)
 
-	compiler := ast.NewCompiler()
 	packageRef := ast.MustParseRef("data.test")
-	compiler.WithExternalSource(packageRef, source)
-	compiler.Compile(map[string]*ast.Module{})
+	compiler := setupCompiler(t, packageRef, source, staticModule)
 
 	input := ast.MustParseTerm(`{"a": 1, "b": 2, "c": 3}`)
-	store := inmem.New()
-	ctx := context.Background()
-	txn, err := store.NewTransaction(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Abort(ctx, txn)
-
-	query := ast.MustParseBody("data.test.result")
-	q := NewQuery(query).
-		WithCompiler(compiler).
-		WithStore(store).
-		WithTransaction(txn).
-		WithInput(input)
-
-	qrs, err := q.Run(ctx)
-	if err != nil {
-		t.Fatalf("Query failed: %v", err)
-	}
+	qrs := runQuery(t, compiler, "data.main.verify", input)
 
 	if len(qrs) != 1 {
 		t.Fatalf("Expected 1 result, got %d", len(qrs))
 	}
 
-	callCount := source.getCallCount()
-	if callCount != 1 {
-		t.Errorf("Expected external source to be called exactly ONCE despite multiple rule references, got %d calls", callCount)
+	if callCount := source.getCallCount(); callCount != 1 {
+		t.Errorf("Expected external source to be called once despite multiple rule references, got %d calls", callCount)
 	}
 }
 
@@ -316,65 +209,29 @@ func TestExternalSourceE2EWithInputOverride(t *testing.T) {
 	t.Parallel()
 
 	externalModule := ast.MustParseModule(`package authz
-
 allowed if input.user == "alice"`)
 
-	tempCompiler := ast.NewCompiler()
-	tempCompiler.Compile(map[string]*ast.Module{"authz.rego": externalModule})
-	if tempCompiler.Failed() {
-		t.Fatalf("Module compilation failed: %v", tempCompiler.Errors)
-	}
+	compiledModule := compileExternalModule(t, externalModule)
+	source := &countingExternalSource{rules: compiledModule.Rules}
 
-	compiledModule := tempCompiler.Modules["authz.rego"]
+	staticModule := ast.MustParseModule(`package main
+check if {
+	data.authz.allowed
+	data.authz.allowed with input as {"user": "bob"}
+}`)
 
-	source := &countingExternalSource{
-		rules:     compiledModule.Rules,
-		callCount: 0,
-	}
-
-	compiler := ast.NewCompiler()
 	packageRef := ast.MustParseRef("data.authz")
-	compiler.WithExternalSource(packageRef, source)
-	compiler.Compile(map[string]*ast.Module{})
-
-	if compiler.Failed() {
-		t.Fatalf("Compiler failed: %v", compiler.Errors)
-	}
+	compiler := setupCompiler(t, packageRef, source, staticModule)
 
 	input := ast.MustParseTerm(`{"user": "alice"}`)
-	store := inmem.New()
-	ctx := context.Background()
-	txn, err := store.NewTransaction(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Abort(ctx, txn)
+	qrs := runQuery(t, compiler, "data.main.check", input)
 
-	// Query with both original input and overridden input in same query
-	query := ast.MustParseBody(`data.authz.allowed; data.authz.allowed with input as {"user": "bob"}`)
-	q := NewQuery(query).
-		WithCompiler(compiler).
-		WithStore(store).
-		WithTransaction(txn).
-		WithInput(input)
-
-	qrs, err := q.Run(ctx)
-	if err != nil {
-		t.Fatalf("Query failed: %v", err)
-	}
-
-	t.Logf("Query results: %d", len(qrs))
-	t.Logf("External source call count: %d", source.getCallCount())
-
-	callCount := source.getCallCount()
-
-	// Should return 0 results because the second expression (with bob) should fail
 	if len(qrs) != 0 {
-		t.Errorf("Expected 0 results (second check with bob != alice should fail), got %d", len(qrs))
+		t.Errorf("Expected 0 results (second check with bob should fail), got %d", len(qrs))
 	}
 
-	if callCount != 2 {
-		t.Errorf("Expected external source to be called exactly TWICE (once with original input {user: alice}, once with overridden input {user: bob}), got %d calls", callCount)
+	if callCount := source.getCallCount(); callCount != 2 {
+		t.Errorf("Expected external source to be called twice (once per input), got %d calls", callCount)
 	}
 }
 
@@ -382,7 +239,6 @@ func TestExternalSourceE2EWithMultipleRulesFromSamePackage(t *testing.T) {
 	t.Parallel()
 
 	externalModule := ast.MustParseModule(`package authz
-
 allow if input.user == "alice"
 deny if input.action == "delete"
 allowed if {
@@ -390,60 +246,24 @@ allowed if {
 	not deny
 }`)
 
-	tempCompiler := ast.NewCompiler()
-	tempCompiler.Compile(map[string]*ast.Module{"authz.rego": externalModule})
-	if tempCompiler.Failed() {
-		t.Fatalf("Module compilation failed: %v", tempCompiler.Errors)
-	}
+	compiledModule := compileExternalModule(t, externalModule)
+	source := &countingExternalSource{rules: compiledModule.Rules}
 
-	compiledModule := tempCompiler.Modules["authz.rego"]
+	staticModule := ast.MustParseModule(`package main
+check if data.authz.allowed`)
 
-	source := &countingExternalSource{
-		rules:     compiledModule.Rules,
-		callCount: 0,
-	}
-
-	compiler := ast.NewCompiler()
 	packageRef := ast.MustParseRef("data.authz")
-	compiler.WithExternalSource(packageRef, source)
-	compiler.Compile(map[string]*ast.Module{})
-
-	if compiler.Failed() {
-		t.Fatalf("Compiler failed: %v", compiler.Errors)
-	}
+	compiler := setupCompiler(t, packageRef, source, staticModule)
 
 	input := ast.MustParseTerm(`{"user": "alice", "action": "read"}`)
-	store := inmem.New()
-	ctx := context.Background()
-	txn, err := store.NewTransaction(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Abort(ctx, txn)
-
-	// Query for allowed which internally references both allow and deny
-	query := ast.MustParseBody("data.authz.allowed")
-	q := NewQuery(query).
-		WithCompiler(compiler).
-		WithStore(store).
-		WithTransaction(txn).
-		WithInput(input)
-
-	qrs, err := q.Run(ctx)
-	if err != nil {
-		t.Fatalf("Query failed: %v", err)
-	}
-
-	t.Logf("Query results: %d", len(qrs))
-	t.Logf("External source call count: %d", source.getCallCount())
+	qrs := runQuery(t, compiler, "data.main.check", input)
 
 	if len(qrs) != 1 {
-		t.Errorf("Expected 1 result (alice can read, deny not triggered), got %d", len(qrs))
+		t.Errorf("Expected 1 result, got %d", len(qrs))
 	}
 
-	callCount := source.getCallCount()
-	if callCount != 1 {
-		t.Errorf("Expected external source to be called exactly ONCE (all rules from package are cached together, then filtered for each lookup), got %d calls", callCount)
+	if callCount := source.getCallCount(); callCount != 1 {
+		t.Errorf("Expected external source to be called once (all package rules cached together), got %d calls", callCount)
 	}
 }
 
@@ -451,69 +271,28 @@ func TestExternalSourceE2EWithInputOverrideViaStaticRule(t *testing.T) {
 	t.Parallel()
 
 	externalModule := ast.MustParseModule(`package authz
-
 allowed if input.user == "alice"`)
 
-	tempCompiler := ast.NewCompiler()
-	tempCompiler.Compile(map[string]*ast.Module{"authz.rego": externalModule})
-	if tempCompiler.Failed() {
-		t.Fatalf("Module compilation failed: %v", tempCompiler.Errors)
-	}
-
-	compiledModule := tempCompiler.Modules["authz.rego"]
-
-	source := &countingExternalSource{
-		rules:     compiledModule.Rules,
-		callCount: 0,
-	}
+	compiledModule := compileExternalModule(t, externalModule)
+	source := &countingExternalSource{rules: compiledModule.Rules}
 
 	staticModule := ast.MustParseModule(`package main
-
 allow if {
 	data.authz.allowed
 	data.authz.allowed with input as {"user": "bob"}
 }`)
 
-	compiler := ast.NewCompiler()
 	packageRef := ast.MustParseRef("data.authz")
-	compiler.WithExternalSource(packageRef, source)
-	compiler.Compile(map[string]*ast.Module{"main.rego": staticModule})
-
-	if compiler.Failed() {
-		t.Fatalf("Compiler failed: %v", compiler.Errors)
-	}
+	compiler := setupCompiler(t, packageRef, source, staticModule)
 
 	input := ast.MustParseTerm(`{"user": "alice"}`)
-	store := inmem.New()
-	ctx := context.Background()
-	txn, err := store.NewTransaction(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Abort(ctx, txn)
-
-	query := ast.MustParseBody("data.main.allow")
-	q := NewQuery(query).
-		WithCompiler(compiler).
-		WithStore(store).
-		WithTransaction(txn).
-		WithInput(input)
-
-	qrs, err := q.Run(ctx)
-	if err != nil {
-		t.Fatalf("Query failed: %v", err)
-	}
-
-	t.Logf("Query results: %d", len(qrs))
-	t.Logf("External source call count: %d", source.getCallCount())
-
-	callCount := source.getCallCount()
+	qrs := runQuery(t, compiler, "data.main.allow", input)
 
 	if len(qrs) != 0 {
-		t.Errorf("Expected 0 results (second check with bob != alice should fail), got %d", len(qrs))
+		t.Errorf("Expected 0 results (second check with bob should fail), got %d", len(qrs))
 	}
 
-	if callCount != 2 {
-		t.Errorf("Expected external source to be called exactly TWICE when called via static rule (once with original input {user: alice}, once with overridden input {user: bob}), got %d calls", callCount)
+	if callCount := source.getCallCount(); callCount != 2 {
+		t.Errorf("Expected external source to be called twice (once per input), got %d calls", callCount)
 	}
 }
