@@ -22,13 +22,14 @@ func TestStaticSource(t *testing.T) {
 
 	ctx := t.Context()
 	input := ast.NullTerm()
+	ref := ast.MustParseRef("data.test")
 
 	index, err := source.Init(ctx)
 	if err != nil {
 		t.Fatalf("Init failed: %v", err)
 	}
 
-	result, err := index.AllRules(ctx, input)
+	result, err := index.AllRules(ctx, ref, input)
 	if err != nil {
 		t.Fatalf("AllRules failed: %v", err)
 	}
@@ -38,7 +39,7 @@ func TestStaticSource(t *testing.T) {
 	}
 
 	mockResolver := &mockResolver{}
-	result2, err := index.Lookup(ctx, input, mockResolver)
+	result2, err := index.Lookup(ctx, ref, input, mockResolver)
 	if err != nil {
 		t.Fatalf("Lookup failed: %v", err)
 	}
@@ -65,13 +66,14 @@ func TestFilteredSource(t *testing.T) {
 
 	ctx := t.Context()
 	input := ast.NullTerm()
+	ref := ast.MustParseRef("data.test")
 
 	index, err := source.Init(ctx)
 	if err != nil {
 		t.Fatalf("Init failed: %v", err)
 	}
 
-	result, err := index.AllRules(ctx, input)
+	result, err := index.AllRules(ctx, ref, input)
 	if err != nil {
 		t.Fatalf("AllRules failed: %v", err)
 	}
@@ -88,7 +90,7 @@ func TestFilteredSource(t *testing.T) {
 	}
 
 	mockResolver := &mockResolver{}
-	result2, err := index.Lookup(ctx, input, mockResolver)
+	result2, err := index.Lookup(ctx, ref, input, mockResolver)
 	if err != nil {
 		t.Fatalf("Lookup failed: %v", err)
 	}
@@ -119,6 +121,7 @@ func TestFilteredSource_InputBasedFiltering(t *testing.T) {
 	refs := []ast.Ref{ast.MustParseRef("data.test")}
 	source := NewFilteredSource(refs, rules, filter)
 	ctx := t.Context()
+	ref := ast.MustParseRef("data.test")
 
 	index, err := source.Init(ctx)
 	if err != nil {
@@ -126,7 +129,7 @@ func TestFilteredSource_InputBasedFiltering(t *testing.T) {
 	}
 
 	inputAllow := ast.ObjectTerm([2]*ast.Term{ast.StringTerm("mode"), ast.StringTerm("allow")})
-	result, err := index.AllRules(ctx, inputAllow)
+	result, err := index.AllRules(ctx, ref, inputAllow)
 	if err != nil {
 		t.Fatalf("AllRules failed: %v", err)
 	}
@@ -140,7 +143,7 @@ func TestFilteredSource_InputBasedFiltering(t *testing.T) {
 	}
 
 	inputDeny := ast.ObjectTerm([2]*ast.Term{ast.StringTerm("mode"), ast.StringTerm("deny")})
-	result2, err := index.AllRules(ctx, inputDeny)
+	result2, err := index.AllRules(ctx, ref, inputDeny)
 	if err != nil {
 		t.Fatalf("AllRules failed: %v", err)
 	}
@@ -169,13 +172,14 @@ func TestIndexedSource(t *testing.T) {
 
 	ctx := t.Context()
 	input := ast.NullTerm()
+	ref := ast.MustParseRef("data.test")
 
 	index, err := source.Init(ctx)
 	if err != nil {
 		t.Fatalf("Init failed: %v", err)
 	}
 
-	result, err := index.AllRules(ctx, input)
+	result, err := index.AllRules(ctx, ref, input)
 	if err != nil {
 		t.Fatalf("AllRules failed: %v", err)
 	}
@@ -185,7 +189,7 @@ func TestIndexedSource(t *testing.T) {
 	}
 
 	mockResolver := &mockResolver{}
-	result2, err := index.Lookup(ctx, input, mockResolver)
+	result2, err := index.Lookup(ctx, ref, input, mockResolver)
 	if err != nil {
 		t.Fatalf("Lookup failed: %v", err)
 	}
@@ -211,13 +215,14 @@ func TestIndexedSource_SelectiveFiltering(t *testing.T) {
 	source := NewIndexedSource(refs, rules, lookup)
 	ctx := t.Context()
 	input := ast.NullTerm()
+	ref := ast.MustParseRef("data.test")
 
 	index, err := source.Init(ctx)
 	if err != nil {
 		t.Fatalf("Init failed: %v", err)
 	}
 
-	result, err := index.AllRules(ctx, input)
+	result, err := index.AllRules(ctx, ref, input)
 	if err != nil {
 		t.Fatalf("AllRules failed: %v", err)
 	}
@@ -227,7 +232,7 @@ func TestIndexedSource_SelectiveFiltering(t *testing.T) {
 	}
 
 	mockResolver := &mockResolver{}
-	result2, err := index.Lookup(ctx, input, mockResolver)
+	result2, err := index.Lookup(ctx, ref, input, mockResolver)
 	if err != nil {
 		t.Fatalf("Lookup failed: %v", err)
 	}

@@ -36,12 +36,12 @@ type mockExternalIndex struct {
 	callCount *int32
 }
 
-func (m *mockExternalIndex) Lookup(ctx context.Context, input *Term, resolver ValueResolver) ([]*Rule, error) {
+func (m *mockExternalIndex) Lookup(ctx context.Context, ref Ref, input *Term, resolver ValueResolver) ([]*Rule, error) {
 	atomic.AddInt32(m.callCount, 1)
 	return m.rules, nil
 }
 
-func (m *mockExternalIndex) AllRules(ctx context.Context, input *Term) ([]*Rule, error) {
+func (m *mockExternalIndex) AllRules(ctx context.Context, ref Ref, input *Term) ([]*Rule, error) {
 	atomic.AddInt32(m.callCount, 1)
 	return m.rules, nil
 }
@@ -188,13 +188,14 @@ func TestExternalSourceInputParameter(t *testing.T) {
 	compiler.WithExternalSource(packageRef, captureSource)
 
 	testInput := ObjectTerm(Item(StringTerm("key"), StringTerm("value")))
+	testRef := MustParseRef("data.test")
 
 	index, err := captureSource.Init(t.Context())
 	if err != nil {
 		t.Fatalf("Init failed: %v", err)
 	}
 
-	rules, err := index.AllRules(t.Context(), testInput)
+	rules, err := index.AllRules(t.Context(), testRef, testInput)
 	if err != nil {
 		t.Fatalf("AllRules failed: %v", err)
 	}
@@ -322,14 +323,14 @@ type inputCapturingIndex struct {
 	captureFunc func(*Term)
 }
 
-func (s *inputCapturingIndex) Lookup(ctx context.Context, input *Term, resolver ValueResolver) ([]*Rule, error) {
+func (s *inputCapturingIndex) Lookup(ctx context.Context, ref Ref, input *Term, resolver ValueResolver) ([]*Rule, error) {
 	if s.captureFunc != nil {
 		s.captureFunc(input)
 	}
 	return s.rules, nil
 }
 
-func (s *inputCapturingIndex) AllRules(ctx context.Context, input *Term) ([]*Rule, error) {
+func (s *inputCapturingIndex) AllRules(ctx context.Context, ref Ref, input *Term) ([]*Rule, error) {
 	if s.captureFunc != nil {
 		s.captureFunc(input)
 	}

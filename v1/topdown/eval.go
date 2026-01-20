@@ -63,6 +63,7 @@ func (ee deferredEarlyExitError) Error() string {
 type externalRuleIndexAdapter struct {
 	ctx   context.Context
 	index ast.ExternalRuleIndex
+	ref   ast.Ref
 	input *ast.Term
 }
 
@@ -70,7 +71,7 @@ type externalRuleIndexAdapter struct {
 func (*externalRuleIndexAdapter) Build([]*ast.Rule) bool { return false }
 
 func (e *externalRuleIndexAdapter) Lookup(resolver ast.ValueResolver) (*ast.IndexResult, error) {
-	rules, err := e.index.Lookup(e.ctx, e.input, resolver)
+	rules, err := e.index.Lookup(e.ctx, e.ref, e.input, resolver)
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +91,7 @@ func (e *externalRuleIndexAdapter) Lookup(resolver ast.ValueResolver) (*ast.Inde
 }
 
 func (e *externalRuleIndexAdapter) AllRules(resolver ast.ValueResolver) (*ast.IndexResult, error) {
-	rules, err := e.index.AllRules(e.ctx, e.input)
+	rules, err := e.index.AllRules(e.ctx, e.ref, e.input)
 	if err != nil {
 		return nil, err
 	}
@@ -1720,10 +1721,11 @@ func (e *eval) getRules(ref ast.Ref, args []*ast.Term) (*ast.IndexResult, error)
 			return nil, err
 		}
 
-		// wrapping allows us to use `e.ctx` in `Lookup()` and `AllRules()` below
+		// wrapping allows us to use `e.ctx` and `ref` in `Lookup()` and `AllRules()` below
 		index = &externalRuleIndexAdapter{
 			ctx:   e.ctx,
 			index: externalIndex,
+			ref:   ref,
 			input: e.input,
 		}
 	} else {

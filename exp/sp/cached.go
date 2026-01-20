@@ -46,11 +46,11 @@ type cachedIndex struct {
 	mu         *sync.RWMutex
 }
 
-func (c *cachedIndex) Lookup(ctx context.Context, input *ast.Term, _ ast.ValueResolver) ([]*ast.Rule, error) {
-	return c.AllRules(ctx, input)
+func (c *cachedIndex) Lookup(ctx context.Context, ref ast.Ref, input *ast.Term, _ ast.ValueResolver) ([]*ast.Rule, error) {
+	return c.AllRules(ctx, ref, input)
 }
 
-func (c *cachedIndex) AllRules(ctx context.Context, input *ast.Term) ([]*ast.Rule, error) {
+func (c *cachedIndex) AllRules(ctx context.Context, ref ast.Ref, input *ast.Term) ([]*ast.Rule, error) {
 	key := input.String()
 
 	c.mu.RLock()
@@ -60,7 +60,7 @@ func (c *cachedIndex) AllRules(ctx context.Context, input *ast.Term) ([]*ast.Rul
 	}
 	c.mu.RUnlock()
 
-	rules, err := c.underlying.AllRules(ctx, input)
+	rules, err := c.underlying.AllRules(ctx, ref, input)
 	if err != nil {
 		return nil, err
 	}

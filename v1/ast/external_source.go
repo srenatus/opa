@@ -17,12 +17,14 @@ type ExternalRuleSource interface {
 }
 
 type ExternalRuleIndex interface {
-	// Lookup returns rules optimized for a specific lookup context. The
-	// resolver parameter provides access to variable bindings and evaluation
-	// state, allowing advanced filtering when beneficial.
-	Lookup(ctx context.Context, input *Term, resolver ValueResolver) ([]*Rule, error)
+	// Lookup returns rules optimized for a specific lookup context. The ref
+	// parameter specifies which rules are being queried, the resolver parameter
+	// provides access to variable bindings and evaluation state, allowing
+	// advanced filtering when beneficial.
+	Lookup(ctx context.Context, ref Ref, input *Term, resolver ValueResolver) ([]*Rule, error)
 
-	// AllRules returns all rules for the package. The input parameter allows
-	// filtering to return only input-relevant rules.
-	AllRules(ctx context.Context, input *Term) ([]*Rule, error)
+	// AllRules returns all rules for the package. The ref parameter specifies
+	// which rules are being queried, and the input parameter allows filtering
+	// to return only input-relevant rules.
+	AllRules(ctx context.Context, ref Ref, input *Term) ([]*Rule, error)
 }

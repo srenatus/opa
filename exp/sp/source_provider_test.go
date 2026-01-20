@@ -22,6 +22,7 @@ func TestMockSource(t *testing.T) {
 
 	ctx := t.Context()
 	input := ast.NullTerm()
+	ref := ast.MustParseRef("data.test")
 	mockResolver := &mockResolver{}
 
 	index, err := source.Init(ctx)
@@ -29,7 +30,7 @@ func TestMockSource(t *testing.T) {
 		t.Fatalf("Init failed: %v", err)
 	}
 
-	result, err := index.Lookup(ctx, input, mockResolver)
+	result, err := index.Lookup(ctx, ref, input, mockResolver)
 	if err != nil {
 		t.Fatalf("Lookup failed: %v", err)
 	}
@@ -38,7 +39,7 @@ func TestMockSource(t *testing.T) {
 		t.Errorf("Expected 2 rules from Lookup, got %d", len(result))
 	}
 
-	result2, err := index.AllRules(ctx, input)
+	result2, err := index.AllRules(ctx, ref, input)
 	if err != nil {
 		t.Fatalf("AllRules failed: %v", err)
 	}
@@ -65,10 +66,10 @@ type mockIndex struct {
 	rules []*ast.Rule
 }
 
-func (m *mockIndex) Lookup(context.Context, *ast.Term, ast.ValueResolver) ([]*ast.Rule, error) {
+func (m *mockIndex) Lookup(context.Context, ast.Ref, *ast.Term, ast.ValueResolver) ([]*ast.Rule, error) {
 	return m.rules, nil
 }
 
-func (m *mockIndex) AllRules(context.Context, *ast.Term) ([]*ast.Rule, error) {
+func (m *mockIndex) AllRules(context.Context, ast.Ref, *ast.Term) ([]*ast.Rule, error) {
 	return m.rules, nil
 }

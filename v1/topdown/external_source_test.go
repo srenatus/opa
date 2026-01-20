@@ -29,12 +29,12 @@ type countingExternalIndex struct {
 	callCount *int32
 }
 
-func (m *countingExternalIndex) Lookup(ctx context.Context, input *ast.Term, resolver ast.ValueResolver) ([]*ast.Rule, error) {
+func (m *countingExternalIndex) Lookup(ctx context.Context, ref ast.Ref, input *ast.Term, resolver ast.ValueResolver) ([]*ast.Rule, error) {
 	atomic.AddInt32(m.callCount, 1)
 	return m.rules, nil
 }
 
-func (m *countingExternalIndex) AllRules(ctx context.Context, input *ast.Term) ([]*ast.Rule, error) {
+func (m *countingExternalIndex) AllRules(ctx context.Context, ref ast.Ref, input *ast.Term) ([]*ast.Rule, error) {
 	atomic.AddInt32(m.callCount, 1)
 	return m.rules, nil
 }

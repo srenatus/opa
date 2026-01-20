@@ -32,11 +32,11 @@ type staticIndex struct {
 	rules []*ast.Rule
 }
 
-func (s *staticIndex) Lookup(context.Context, *ast.Term, ast.ValueResolver) ([]*ast.Rule, error) {
+func (s *staticIndex) Lookup(context.Context, ast.Ref, *ast.Term, ast.ValueResolver) ([]*ast.Rule, error) {
 	return s.rules, nil
 }
 
-func (s *staticIndex) AllRules(context.Context, *ast.Term) ([]*ast.Rule, error) {
+func (s *staticIndex) AllRules(context.Context, ast.Ref, *ast.Term) ([]*ast.Rule, error) {
 	return s.rules, nil
 }
 
@@ -67,11 +67,11 @@ type filteredIndex struct {
 	filter   func(*ast.Term, *ast.Rule) bool
 }
 
-func (s *filteredIndex) Lookup(ctx context.Context, input *ast.Term, _ ast.ValueResolver) ([]*ast.Rule, error) {
-	return s.AllRules(ctx, input)
+func (s *filteredIndex) Lookup(ctx context.Context, ref ast.Ref, input *ast.Term, _ ast.ValueResolver) ([]*ast.Rule, error) {
+	return s.AllRules(ctx, ref, input)
 }
 
-func (s *filteredIndex) AllRules(_ context.Context, input *ast.Term) ([]*ast.Rule, error) {
+func (s *filteredIndex) AllRules(_ context.Context, _ ast.Ref, input *ast.Term) ([]*ast.Rule, error) {
 	if s.filter == nil {
 		return s.allRules, nil
 	}
@@ -112,7 +112,7 @@ type indexedIndex struct {
 	lookup   func(*ast.Term, ast.ValueResolver, *ast.Rule) bool
 }
 
-func (s *indexedIndex) Lookup(_ context.Context, input *ast.Term, resolver ast.ValueResolver) ([]*ast.Rule, error) {
+func (s *indexedIndex) Lookup(_ context.Context, _ ast.Ref, input *ast.Term, resolver ast.ValueResolver) ([]*ast.Rule, error) {
 	if s.lookup == nil {
 		return s.allRules, nil
 	}
@@ -126,7 +126,7 @@ func (s *indexedIndex) Lookup(_ context.Context, input *ast.Term, resolver ast.V
 	return filtered, nil
 }
 
-func (s *indexedIndex) AllRules(context.Context, *ast.Term) ([]*ast.Rule, error) {
+func (s *indexedIndex) AllRules(context.Context, ast.Ref, *ast.Term) ([]*ast.Rule, error) {
 	return s.allRules, nil
 }
 

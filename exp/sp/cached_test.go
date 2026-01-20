@@ -31,12 +31,12 @@ type countingIndex struct {
 	callCount *int32
 }
 
-func (c *countingIndex) Lookup(context.Context, *ast.Term, ast.ValueResolver) ([]*ast.Rule, error) {
+func (c *countingIndex) Lookup(context.Context, ast.Ref, *ast.Term, ast.ValueResolver) ([]*ast.Rule, error) {
 	atomic.AddInt32(c.callCount, 1)
 	return c.rules, nil
 }
 
-func (c *countingIndex) AllRules(context.Context, *ast.Term) ([]*ast.Rule, error) {
+func (c *countingIndex) AllRules(context.Context, ast.Ref, *ast.Term) ([]*ast.Rule, error) {
 	atomic.AddInt32(c.callCount, 1)
 	return c.rules, nil
 }
@@ -62,9 +62,10 @@ p if true`)
 
 	input1 := ast.MustParseTerm(`{"user": "alice"}`)
 	input2 := ast.MustParseTerm(`{"user": "bob"}`)
+	ref := ast.MustParseRef("data.test")
 
 	// First call with input1 - should hit underlying source
-	rules1, err := index.AllRules(ctx, input1)
+	rules1, err := index.AllRules(ctx, ref, input1)
 	if err != nil {
 		t.Fatalf("AllRules failed: %v", err)
 	}
@@ -76,7 +77,7 @@ p if true`)
 	}
 
 	// Second call with same input1 - should use cache
-	rules2, err := index.AllRules(ctx, input1)
+	rules2, err := index.AllRules(ctx, ref, input1)
 	if err != nil {
 		t.Fatalf("AllRules failed: %v", err)
 	}
@@ -88,7 +89,7 @@ p if true`)
 	}
 
 	// Third call with different input2 - should hit underlying source
-	rules3, err := index.AllRules(ctx, input2)
+	rules3, err := index.AllRules(ctx, ref, input2)
 	if err != nil {
 		t.Fatalf("AllRules failed: %v", err)
 	}
@@ -100,7 +101,7 @@ p if true`)
 	}
 
 	// Fourth call with input2 again - should use cache
-	rules4, err := index.AllRules(ctx, input2)
+	rules4, err := index.AllRules(ctx, ref, input2)
 	if err != nil {
 		t.Fatalf("AllRules failed: %v", err)
 	}
@@ -127,9 +128,10 @@ p if true`)
 	}
 
 	input := ast.MustParseTerm(`{"user": "alice"}`)
+	ref := ast.MustParseRef("data.test")
 
 	// First call - should hit underlying
-	rules1, err := index.Lookup(ctx, input, nil)
+	rules1, err := index.Lookup(ctx, ref, input, nil)
 	if err != nil {
 		t.Fatalf("Lookup failed: %v", err)
 	}
@@ -141,7 +143,7 @@ p if true`)
 	}
 
 	// Second call - should use cache
-	rules2, err := index.Lookup(ctx, input, nil)
+	rules2, err := index.Lookup(ctx, ref, input, nil)
 	if err != nil {
 		t.Fatalf("Lookup failed: %v", err)
 	}
