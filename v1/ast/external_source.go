@@ -13,18 +13,13 @@ type ExternalRuleSource interface {
 	// A source can provide rules for multiple packages.
 	Refs() []Ref
 
-	Init(context.Context) (ExternalRuleIndex, error)
+	// Init returns an initialized [ExternalRuleIndex]. A `Ref` is provided
+	// so we know which package we're preparing if multiple Refs are external.
+	Init(context.Context, Ref) (ExternalRuleIndex, error)
 }
 
+// ExternalRuleIndex mirrors RuleIndex, but add a [context.Context] parameter.
 type ExternalRuleIndex interface {
-	// Lookup returns rules optimized for a specific lookup context. The ref
-	// parameter specifies which rules are being queried, the resolver parameter
-	// provides access to variable bindings and evaluation state, allowing
-	// advanced filtering when beneficial.
-	Lookup(ctx context.Context, ref Ref, input *Term, resolver ValueResolver) ([]*Rule, error)
-
-	// AllRules returns all rules for the package. The ref parameter specifies
-	// which rules are being queried, and the input parameter allows filtering
-	// to return only input-relevant rules.
-	AllRules(ctx context.Context, ref Ref, input *Term) ([]*Rule, error)
+	Lookup(context.Context, ValueResolver) (*IndexResult, error)
+	AllRules(context.Context, ValueResolver) (*IndexResult, error)
 }

@@ -5,7 +5,6 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/open-policy-agent/opa/exp/sp"
 	"github.com/open-policy-agent/opa/v1/ast"
 	"github.com/open-policy-agent/opa/v1/storage/inmem"
 )
@@ -16,12 +15,12 @@ type countingExternalSource struct {
 	callCount int32
 }
 
-func (m *countingExternalSource) Refs() []ast.Ref {
-	return m.refs
+func (m *countingExternalSource) Init(_ context.Context, r ast.Ref) (ast.ExternalRuleIndex, error) {
+	return &countingExternalIndex{rules: m.rules, callCount: &m.callCount}, nil
 }
 
-func (m *countingExternalSource) Init(context.Context) (ast.ExternalRuleIndex, error) {
-	return &countingExternalIndex{rules: m.rules, callCount: &m.callCount}, nil
+func (m *countingExternalSource) Refs() []ast.Ref {
+	return m.refs
 }
 
 type countingExternalIndex struct {
@@ -29,14 +28,14 @@ type countingExternalIndex struct {
 	callCount *int32
 }
 
-func (m *countingExternalIndex) Lookup(ctx context.Context, ref ast.Ref, input *ast.Term, resolver ast.ValueResolver) ([]*ast.Rule, error) {
+func (m *countingExternalIndex) Lookup(context.Context, ast.ValueResolver) (*ast.IndexResult, error) {
 	atomic.AddInt32(m.callCount, 1)
-	return m.rules, nil
+	return &ast.IndexResult{Rules: m.rules}, nil
 }
 
-func (m *countingExternalIndex) AllRules(ctx context.Context, ref ast.Ref, input *ast.Term) ([]*ast.Rule, error) {
+func (m *countingExternalIndex) AllRules(context.Context, ast.ValueResolver) (*ast.IndexResult, error) {
 	atomic.AddInt32(m.callCount, 1)
-	return m.rules, nil
+	return &ast.IndexResult{Rules: m.rules}, nil
 }
 
 func (m *countingExternalSource) getCallCount() int {
@@ -104,11 +103,11 @@ foo if true`)
 
 	packageRef := ast.MustParseRef("data.test")
 	source := &countingExternalSource{refs: []ast.Ref{packageRef}, rules: externalModule.Rules}
-	cachedSource := sp.NewCachedSource(source)
+	// cachedSource := sp.NewCachedSource(source)
 	staticModule := ast.MustParseModule(`package main
 result if data.test.foo`)
 
-	compiler := setupCompiler(t, packageRef, cachedSource, staticModule)
+	compiler := setupCompiler(t, packageRef, source, staticModule)
 
 	treeNode := compiler.RuleTree.Find(packageRef)
 	if treeNode == nil {
@@ -155,12 +154,12 @@ allowed if {
 	packageRef := ast.MustParseRef("data.authz")
 	compiledModule := compileExternalModule(t, externalModule)
 	source := &countingExternalSource{refs: []ast.Ref{packageRef}, rules: compiledModule.Rules}
-	cachedSource := sp.NewCachedSource(source)
+	// cachedSource := sp.NewCachedSource(source)
 
 	staticModule := ast.MustParseModule(`package main
 check if data.authz.allowed`)
 
-	compiler := setupCompiler(t, packageRef, cachedSource, staticModule)
+	compiler := setupCompiler(t, packageRef, source, staticModule)
 
 	testCase := func(t *testing.T, inputJSON string, expectResults int) {
 		t.Helper()
@@ -204,11 +203,11 @@ result if {
 
 	packageRef := ast.MustParseRef("data.test")
 	source := &countingExternalSource{refs: []ast.Ref{packageRef}, rules: externalModule.Rules}
-	cachedSource := sp.NewCachedSource(source)
+	// cachedSource := sp.NewCachedSource(source)
 	staticModule := ast.MustParseModule(`package main
 verify if data.test.result`)
 
-	compiler := setupCompiler(t, packageRef, cachedSource, staticModule)
+	compiler := setupCompiler(t, packageRef, source, staticModule)
 
 	input := ast.MustParseTerm(`{"a": 1, "b": 2, "c": 3}`)
 	qrs := runQuery(t, compiler, "data.main.verify", input)
@@ -266,12 +265,12 @@ allowed if {
 	packageRef := ast.MustParseRef("data.authz")
 	compiledModule := compileExternalModule(t, externalModule)
 	source := &countingExternalSource{refs: []ast.Ref{packageRef}, rules: compiledModule.Rules}
-	cachedSource := sp.NewCachedSource(source)
+	// cachedSource := sp.NewCachedSource(source)
 
 	staticModule := ast.MustParseModule(`package main
 check if data.authz.allowed`)
 
-	compiler := setupCompiler(t, packageRef, cachedSource, staticModule)
+	compiler := setupCompiler(t, packageRef, source, staticModule)
 
 	input := ast.MustParseTerm(`{"user": "alice", "action": "read"}`)
 	qrs := runQuery(t, compiler, "data.main.check", input)

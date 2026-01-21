@@ -5,9 +5,11 @@
 package ast
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"maps"
 	"slices"
 	"sort"
@@ -573,7 +575,7 @@ func (c *Compiler) GetArity(ref Ref) int {
 	if len(rules) == 0 {
 		return -1
 	}
-	return len(rules[0].Head.Args)
+	return len(rules[0].Head.Args) // TODO(sr): This needs to work with ExternalRuleSource, I suppose?
 }
 
 // GetRulesExact returns a slice of rules referred to by the reference.
@@ -599,7 +601,7 @@ func (c *Compiler) GetRulesExact(ref Ref) (rules []*Rule) {
 		}
 	}
 
-	return extractRules(node.Values)
+	return node.Values
 }
 
 // GetRulesForVirtualDocument returns a slice of rules that produce the virtual
@@ -626,11 +628,11 @@ func (c *Compiler) GetRulesForVirtualDocument(ref Ref) (rules []*Rule) {
 			return nil
 		}
 		if len(node.Values) > 0 {
-			return extractRules(node.Values)
+			return node.Values
 		}
 	}
 
-	return extractRules(node.Values)
+	return node.Values
 }
 
 // GetRulesWithPrefix returns a slice of rules that share the prefix ref.
@@ -661,7 +663,7 @@ func (c *Compiler) GetRulesWithPrefix(ref Ref) (rules []*Rule) {
 	var acc func(node *TreeNode)
 
 	acc = func(node *TreeNode) {
-		rules = append(rules, extractRules(node.Values)...)
+		rules = append(rules, node.Values...)
 		for _, child := range node.Children {
 			if child.Hide {
 				continue
@@ -672,14 +674,6 @@ func (c *Compiler) GetRulesWithPrefix(ref Ref) (rules []*Rule) {
 
 	acc(node)
 
-	return rules
-}
-
-func extractRules(s []any) []*Rule {
-	rules := make([]*Rule, len(s))
-	for i := range s {
-		rules[i] = s[i].(*Rule)
-	}
 	return rules
 }
 
@@ -818,9 +812,9 @@ func (c *Compiler) GetRulesDynamicWithOpts(ref Ref, opts RulesOptions) []*Rule {
 }
 
 // Utility: add all rule values to the set.
-func insertRules(set map[*Rule]struct{}, rules []any) {
+func insertRules(set map[*Rule]struct{}, rules []*Rule) {
 	for _, rule := range rules {
-		set[rule.(*Rule)] = struct{}{}
+		set[rule] = struct{}{}
 	}
 }
 
@@ -838,6 +832,22 @@ func (c *Compiler) RuleIndex(path Ref) RuleIndex {
 		return nil
 	}
 	return r
+}
+
+func (w wrapExternalRuleIndex) External() ExternalRuleIndex {
+	return w.ExternalRuleIndex
+}
+
+type wrapExternalRuleIndex struct{ ExternalRuleIndex }
+
+func (wrapExternalRuleIndex) Build([]*Rule) bool { return false }
+
+func (w wrapExternalRuleIndex) Lookup(res ValueResolver) (*IndexResult, error) {
+	return w.ExternalRuleIndex.Lookup(context.TODO(), res)
+}
+
+func (w wrapExternalRuleIndex) AllRules(res ValueResolver) (*IndexResult, error) {
+	return w.ExternalRuleIndex.AllRules(context.TODO(), res)
 }
 
 // GetExternalSource returns the external rule source that covers the given path.
@@ -969,10 +979,16 @@ func (c *Compiler) counterAdd(name string, n uint64) {
 func (c *Compiler) buildRuleIndices() {
 
 	c.RuleTree.DepthFirst(func(node *TreeNode) bool {
-		if len(node.Values) == 0 {
+		if len(node.Values) == 0 && node.External == nil {
 			return false
 		}
-		rules := extractRules(node.Values)
+		if node.External != nil {
+			ers := node.External
+			c.ruleIndices.Put(ers.Ref, wrapExternalRuleIndex{ers.Index})
+			log.Printf("ruleIndices.Put(%v, %T)", ers.Ref, ers.Index)
+			return true
+		}
+		rules := node.Values // must be len > 0 here
 		hasNonGroundRef := false
 		for _, r := range rules {
 			hasNonGroundRef = !r.Head.Ref().IsGround()
@@ -987,21 +1003,14 @@ func (c *Compiler) buildRuleIndices() {
 			// b.c.d2.e[x] := 3 { x := input.x }
 			for _, child := range node.Children {
 				child.DepthFirst(func(c *TreeNode) bool {
-					rules = append(rules, extractRules(c.Values)...)
+					rules = append(rules, c.Values...)
 					return false
 				})
 			}
 		}
 
 		index := newBaseDocEqIndex(func(ref Ref) bool {
-			groundPrefix := ref.GroundPrefix()
-			// Check if it's a regular virtual document in the rule tree
-			if isVirtual(c.RuleTree, groundPrefix) {
-				return true
-			}
-			// Check if it's covered by a registered external source
-			source := c.GetExternalSource(groundPrefix)
-			return source != nil
+			return isVirtual(c.RuleTree, ref.GroundPrefix())
 		})
 		if index.Build(rules) {
 			c.ruleIndices.Put(rules[0].Ref().GroundPrefix(), index)
@@ -1009,6 +1018,7 @@ func (c *Compiler) buildRuleIndices() {
 		return hasNonGroundRef // currently, we don't allow those branches to go deeper
 	})
 
+	log.Printf("indices built: %s", c.RuleTree.Dump())
 }
 
 func (c *Compiler) buildComprehensionIndices() {
@@ -1128,7 +1138,7 @@ func (c *Compiler) checkRecursion() {
 
 	c.RuleTree.DepthFirst(func(node *TreeNode) bool {
 		for _, rule := range node.Values {
-			for node := rule.(*Rule); node != nil; node = node.Else {
+			for node := rule; node != nil; node = node.Else {
 				c.checkSelfPath(node.Loc(), eq, node, node)
 			}
 		}
@@ -1162,16 +1172,20 @@ func (c *Compiler) checkRuleConflicts() {
 			return false // go deeper
 		}
 
-		kinds := make(map[RuleKind]struct{}, len(node.Values))
+		rules := node.Values
+		if len(rules) == 0 {
+			return true // ?? right
+		}
+		kinds := make(map[RuleKind]struct{}, len(rules))
 		completeRules := 0
 		partialRules := 0
-		arities := make(map[int]struct{}, len(node.Values))
+		arities := make(map[int]struct{}, len(rules))
 		name := ""
 		var conflicts []Ref
 		defaultRules := make([]*Rule, 0)
 
-		for _, rule := range node.Values {
-			r := rule.(*Rule)
+		for _, rule := range rules {
+			r := rule
 			ref := r.Ref()
 			name = rw(ref.CopyNonGround()).String() // varRewriter operates in-place
 			kinds[r.Head.RuleKind()] = struct{}{}
@@ -1228,10 +1242,10 @@ func (c *Compiler) checkRuleConflicts() {
 
 		switch {
 		case conflicts != nil:
-			return !c.err(NewError(TypeErr, node.Values[0].(*Rule).Loc(), "rule %v conflicts with %v", name, conflicts))
+			return !c.err(NewError(TypeErr, rules[0].Loc(), "rule %v conflicts with %v", name, conflicts))
 
 		case len(kinds) > 1 || len(arities) > 1 || (completeRules >= 1 && partialRules >= 1):
-			return !c.err(NewError(TypeErr, node.Values[0].(*Rule).Loc(), "conflicting rules %v found", name))
+			return !c.err(NewError(TypeErr, rules[0].Loc(), "conflicting rules %v found", name))
 
 		case len(defaultRules) > 1:
 
@@ -3205,9 +3219,15 @@ func (c *Compiler) setRuleTree() {
 
 	// Add tree nodes for external source paths so evaluation knows to look there
 	c.externalSources.Iter(func(pkgRef Ref, source ExternalRuleSource) bool {
-		c.RuleTree.add(pkgRef, nil)
+		ri, err := source.Init(context.TODO(), pkgRef)
+		if err != nil {
+			c.err(NewError(CompileErr, nil, "failed to initialize external rule source for ref %v: %w", pkgRef, err))
+			return true
+		}
+		c.RuleTree.add(pkgRef, ri)
 		return false
 	})
+
 }
 
 func (c *Compiler) setGraph() {
@@ -3873,7 +3893,8 @@ func (n *ModuleTreeNode) DepthFirst(f func(*ModuleTreeNode) bool) {
 // rule path.
 type TreeNode struct {
 	Key      Value
-	Values   []any
+	External *ExternalIndex
+	Values   []*Rule
 	Children map[Value]*TreeNode
 	Sorted   []Value
 	Hide     bool
@@ -3916,18 +3937,35 @@ func NewRuleTree(mtree *ModuleTreeNode) *TreeNode {
 	return &root
 }
 
-func (n *TreeNode) add(path Ref, rule *Rule) {
+func (n *TreeNode) add(path Ref, val any) {
+	_, ok := val.(ExternalRuleIndex)
+	log.Printf("path = %v, val = %v %[2]T, ERI? %v", path, val, ok)
+
 	node, tail := n.find(path)
 	if len(tail) > 0 {
-		sub := treeNodeFromRef(tail, rule)
+		sub := treeNodeFromRef(path, tail, val)
 		if node.Children == nil {
 			node.Children = make(map[Value]*TreeNode, 1)
 		}
 		node.Children[sub.Key] = sub
 		node.Sorted = append(node.Sorted, sub.Key)
-	} else if rule != nil {
-		node.Values = append(node.Values, rule)
+	} else if val != nil {
+		switch val := val.(type) {
+		case *Rule:
+			node.Values = append(node.Values, val)
+		case ExternalRuleIndex:
+			log.Printf("ERI for path = %v", path)
+			node.External = &ExternalIndex{
+				Index: val,
+				Ref:   path,
+			}
+		}
 	}
+}
+
+type ExternalIndex struct {
+	Index ExternalRuleIndex
+	Ref   Ref
 }
 
 // Size returns the number of rules in the tree.
@@ -3994,23 +4032,33 @@ func (n *TreeNode) sort() {
 	slices.SortFunc(n.Sorted, Value.Compare)
 }
 
-func treeNodeFromRef(ref Ref, rule *Rule) *TreeNode {
-	depth := len(ref) - 1
-	key := ref[depth].Value
+func treeNodeFromRef(ref, tail Ref, val any) *TreeNode {
+	depth := len(tail) - 1
+	key := tail[depth].Value
 	node := &TreeNode{
 		Key:      key,
 		Children: nil,
 	}
-	if rule != nil {
-		node.Values = []any{rule}
+	if val != nil {
+		// TODO(sr): cleanup
+		switch val := val.(type) {
+		case *Rule:
+			node.Values = append(node.Values, val)
+		case ExternalRuleIndex:
+			log.Printf("secondary insert, ref = %v", ref)
+			node.External = &ExternalIndex{
+				Index: val,
+				Ref:   ref,
+			}
+		}
 	}
 
-	for i := len(ref) - 2; i >= 0; i-- {
-		key := ref[i].Value
+	for i := len(tail) - 2; i >= 0; i-- {
+		key := tail[i].Value
 		node = &TreeNode{
 			Key:      key,
-			Children: map[Value]*TreeNode{ref[i+1].Value: node},
-			Sorted:   []Value{ref[i+1].Value},
+			Children: map[Value]*TreeNode{tail[i+1].Value: node},
+			Sorted:   []Value{tail[i+1].Value},
 		}
 	}
 	return node
@@ -4021,8 +4069,7 @@ func (n *TreeNode) flattenChildren() []Ref {
 	ret := newRefSet()
 	for _, sub := range n.Children { // we only want the children, so don't use n.DepthFirst() right away
 		sub.DepthFirst(func(x *TreeNode) bool {
-			for _, r := range x.Values {
-				rule := r.(*Rule)
+			for _, rule := range x.Values {
 				ret.AddPrefix(rule.Ref())
 			}
 			return false
@@ -6243,8 +6290,8 @@ func validateWith(c *Compiler, unsafeBuiltinsMap map[string]struct{}, expr *Expr
 			// target is a function. It's probably wrong for arity-0 functions, but those are
 			// and edge case anyways.
 			if child := targetNode.Child(ref[len(ref)-1].Value); child != nil {
-				for _, v := range child.Values {
-					if len(v.(*Rule).Head.Args) > 0 {
+				for _, r := range child.Values {
+					if len(r.Head.Args) > 0 {
 						if ok, err := validateWithFunctionValue(c.builtins, unsafeBuiltinsMap, c.RuleTree, value); err != nil || ok {
 							return false, err // err may be nil
 						}
@@ -6257,8 +6304,8 @@ func validateWith(c *Compiler, unsafeBuiltinsMap map[string]struct{}, expr *Expr
 		if r, ok := value.Value.(Ref); ok {
 			// TODO: check that target ref doesn't exist?
 			if valueNode := c.RuleTree.Find(r); valueNode != nil {
-				for _, v := range valueNode.Values {
-					if len(v.(*Rule).Head.Args) > 0 {
+				for _, r := range valueNode.Values {
+					if len(r.Head.Args) > 0 {
 						return false, nil
 					}
 				}
@@ -6356,7 +6403,7 @@ func isVirtual(node *TreeNode, ref Ref) bool {
 		child := node.Child(ref[i].Value)
 		if child == nil {
 			return false
-		} else if len(child.Values) > 0 {
+		} else if len(child.Values) > 0 || child.External != nil {
 			return true
 		}
 		node = child
