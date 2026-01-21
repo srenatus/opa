@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"maps"
 	"slices"
 	"sort"
@@ -985,7 +984,6 @@ func (c *Compiler) buildRuleIndices() {
 		if node.External != nil {
 			ers := node.External
 			c.ruleIndices.Put(ers.Ref, wrapExternalRuleIndex{ers.Index})
-			log.Printf("ruleIndices.Put(%v, %T)", ers.Ref, ers.Index)
 			return true
 		}
 		rules := node.Values // must be len > 0 here
@@ -1017,8 +1015,6 @@ func (c *Compiler) buildRuleIndices() {
 		}
 		return hasNonGroundRef // currently, we don't allow those branches to go deeper
 	})
-
-	log.Printf("indices built: %s", c.RuleTree.Dump())
 }
 
 func (c *Compiler) buildComprehensionIndices() {
@@ -3938,9 +3934,6 @@ func NewRuleTree(mtree *ModuleTreeNode) *TreeNode {
 }
 
 func (n *TreeNode) add(path Ref, val any) {
-	_, ok := val.(ExternalRuleIndex)
-	log.Printf("path = %v, val = %v %[2]T, ERI? %v", path, val, ok)
-
 	node, tail := n.find(path)
 	if len(tail) > 0 {
 		sub := treeNodeFromRef(path, tail, val)
@@ -3954,7 +3947,6 @@ func (n *TreeNode) add(path Ref, val any) {
 		case *Rule:
 			node.Values = append(node.Values, val)
 		case ExternalRuleIndex:
-			log.Printf("ERI for path = %v", path)
 			node.External = &ExternalIndex{
 				Index: val,
 				Ref:   path,
@@ -4045,7 +4037,6 @@ func treeNodeFromRef(ref, tail Ref, val any) *TreeNode {
 		case *Rule:
 			node.Values = append(node.Values, val)
 		case ExternalRuleIndex:
-			log.Printf("secondary insert, ref = %v", ref)
 			node.External = &ExternalIndex{
 				Index: val,
 				Ref:   ref,

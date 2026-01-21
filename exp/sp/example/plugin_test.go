@@ -77,18 +77,18 @@ allow := true if { input.role == "admin" }`,
 		t.Fatal("External source not registered with compiler")
 	}
 
-	index, err := externalSource.Init(ctx)
+	index, err := externalSource.Init(ctx, pkgRef)
 	if err != nil {
 		t.Fatalf("Failed to initialize external source: %v", err)
 	}
 
-	rules, err := index.AllRules(ctx, pkgRef, ast.NullTerm())
+	rules, err := index.AllRules(ctx, nil)
 	if err != nil {
 		t.Fatalf("Failed to get rules: %v", err)
 	}
 
-	if len(rules) != 1 {
-		t.Errorf("Expected 1 rule, got %d", len(rules))
+	if len(rules.Rules) != 1 {
+		t.Errorf("Expected 1 rule, got %d", len(rules.Rules))
 	}
 
 	manager.Stop(ctx)
@@ -188,11 +188,12 @@ rule3 := 3 if { true }`,
 		t.Fatal("External source not found")
 	}
 
-	index, _ := source.Init(ctx)
-	rules, _ := index.AllRules(ctx, ast.MustParseRef("data.external.multi"), ast.NullTerm())
+	pkgRef := ast.MustParseRef("data.external.multi")
+	index, _ := source.Init(ctx, pkgRef)
+	rules, _ := index.AllRules(ctx, nil)
 
-	if len(rules) != 3 {
-		t.Errorf("Expected 3 rules, got %d", len(rules))
+	if len(rules.Rules) != 3 {
+		t.Errorf("Expected 3 rules, got %d", len(rules.Rules))
 	}
 }
 

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"slices"
 	"strconv"
 	"strings"
@@ -59,55 +58,6 @@ type deferredEarlyExitError earlyExitError
 func (ee deferredEarlyExitError) Error() string {
 	return fmt.Sprintf("%v: deferred early exit", ee.e.query)
 }
-
-// // externalRuleIndexAdapter adapts an ast.ExternalRuleIndex to the RuleIndex interface.
-// type externalRuleIndexAdapter struct {
-// 	index ast.ExternalRuleIndex
-// 	ref   ast.Ref
-// 	input *ast.Term
-// }
-
-// // Build() only serves to satsify [ast.RuleIndex]
-// func (*externalRuleIndexAdapter) Build([]*ast.Rule) bool { return false }
-
-// func (e *externalRuleIndexAdapter) Lookup(resolver ast.ValueResolver) (*ast.IndexResult, error) {
-// 	rules, err := e.index.Lookup(e.ref, e.input, resolver)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	if len(rules) == 0 {
-// 		return nil, nil
-// 	}
-
-// 	// TODO(sr): These hardcoded values surely don't work out all the time. Fix this.
-// 	kind := rules[0].Head.RuleKind()
-// 	return &ast.IndexResult{
-// 		Rules:          rules,
-// 		Else:           make(map[*ast.Rule][]*ast.Rule),
-// 		Kind:           kind,
-// 		EarlyExit:      false,
-// 		OnlyGroundRefs: false,
-// 	}, nil
-// }
-
-// func (e *externalRuleIndexAdapter) AllRules(resolver ast.ValueResolver) (*ast.IndexResult, error) {
-// 	rules, err := e.index.AllRules(e.ref, e.input, resolver) // TODO(sr): The RI-analogue would be not to pass input. Do we care?
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	if len(rules) == 0 {
-// 		return nil, nil
-// 	}
-
-// 	kind := rules[0].Head.RuleKind()
-// 	return &ast.IndexResult{
-// 		Rules:          rules,
-// 		Else:           make(map[*ast.Rule][]*ast.Rule),
-// 		Kind:           kind,
-// 		EarlyExit:      false,
-// 		OnlyGroundRefs: false,
-// 	}, nil
-// }
 
 // Note(æ): this struct is formatted for optimal alignment as it is big, internal and instantiated
 // *very* frequently during evaluation. If you need to add fields here, please consider the alignment
@@ -2532,14 +2482,6 @@ func (e evalTree) next(iter unifyIterator, plugged *ast.Term) error {
 			// Check for rules in tree OR external source at this path
 			hasRules := node != nil && len(node.Values) > 0
 			hasExternalSource := node != nil && node.External != nil
-			log.Printf("evalTree<%v> hasRules: %v, hasExternal: %v", cpy.plugged[:cpy.pos], hasRules, hasExternalSource)
-			if !hasRules && node != nil {
-				// Check if this path or any prefix has an external source
-				checkRef := cpy.plugged[:cpy.pos]
-				src := e.e.compiler.GetExternalSource(checkRef)
-				hasExternalSource = src != nil
-			}
-			// TODO(sr): Cleanup! Can we register external sources into the RuleTree more properly?
 
 			if hasRules || hasExternalSource {
 				r := evalVirtual{
@@ -2725,8 +2667,6 @@ func (e evalVirtual) eval(iter unifyIterator) error {
 	if err != nil {
 		return err
 	}
-	log.Printf("evalVirtual<ref: %v, pos: %d>, got rules for %v", e.ref, e.pos, e.plugged[:e.pos+1])
-	log.Printf("ir? %v", ir != nil)
 
 	// Partial evaluation of ordered rules is not supported currently. Save the
 	// expression and continue. This could be revisited in the future.

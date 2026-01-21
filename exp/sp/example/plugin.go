@@ -10,7 +10,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 
 	"github.com/open-policy-agent/opa/exp/sp"
 	"github.com/open-policy-agent/opa/v1/ast"
@@ -89,15 +88,15 @@ func (p *Plugin) Start(ctx context.Context) error {
 
 	p.manager.RegisterCompilerTrigger(func(storage.Transaction) {
 		compiler := p.manager.GetCompiler()
-		log.Println("compiler?", compiler != nil)
+		p.logger.Debug("Compiler trigger fired, compiler available: %v", compiler != nil)
 		if compiler != nil {
-			log.Printf("with external source %v, compiler<%p>", pkgRef.String(), compiler)
+			p.logger.Debug("Registering external source %v with compiler<%p>", pkgRef.String(), compiler)
 			compiler.WithExternalSource(pkgRef, p.source)
 		}
 	})
 
 	if compiler := p.manager.GetCompiler(); compiler != nil {
-		log.Printf("secondary reg ext src %v, compiler<%p>", pkgRef.String(), compiler)
+		p.logger.Debug("Initial registration of external source %v with compiler<%p>", pkgRef.String(), compiler)
 		compiler.WithExternalSource(pkgRef, p.source)
 	}
 
