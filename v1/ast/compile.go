@@ -833,7 +833,7 @@ func (c *Compiler) RuleIndex(path Ref) RuleIndex {
 	return r
 }
 
-func (w wrapExternalRuleIndex) External() ExternalRuleIndex {
+func (w wrapExternalRuleIndex) ExternalRI() ExternalRuleIndex {
 	return w.ExternalRuleIndex
 }
 
@@ -842,11 +842,19 @@ type wrapExternalRuleIndex struct{ ExternalRuleIndex }
 func (wrapExternalRuleIndex) Build([]*Rule) bool { return false }
 
 func (w wrapExternalRuleIndex) Lookup(res ValueResolver) (*IndexResult, error) {
-	return w.ExternalRuleIndex.Lookup(context.TODO(), res)
+	rules, err := w.ExternalRuleIndex.Lookup(context.TODO(), res)
+	if err != nil {
+		return nil, err
+	}
+	return &IndexResult{Rules: rules}, nil
 }
 
 func (w wrapExternalRuleIndex) AllRules(res ValueResolver) (*IndexResult, error) {
-	return w.ExternalRuleIndex.AllRules(context.TODO(), res)
+	rules, err := w.ExternalRuleIndex.AllRules(context.TODO(), res)
+	if err != nil {
+		return nil, err
+	}
+	return &IndexResult{Rules: rules}, nil
 }
 
 // GetExternalSource returns the external rule source that covers the given path.
@@ -3217,13 +3225,12 @@ func (c *Compiler) setRuleTree() {
 	c.externalSources.Iter(func(pkgRef Ref, source ExternalRuleSource) bool {
 		ri, err := source.Init(context.TODO(), pkgRef)
 		if err != nil {
-			c.err(NewError(CompileErr, nil, "failed to initialize external rule source for ref %v: %w", pkgRef, err))
+			c.err(NewError(CompileErr, nil, "failed to initialize external rule source for ref %v: %v", pkgRef, err))
 			return true
 		}
 		c.RuleTree.add(pkgRef, ri)
 		return false
 	})
-
 }
 
 func (c *Compiler) setGraph() {

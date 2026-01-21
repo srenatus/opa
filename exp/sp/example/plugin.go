@@ -15,7 +15,6 @@ import (
 	"github.com/open-policy-agent/opa/v1/ast"
 	"github.com/open-policy-agent/opa/v1/logging"
 	"github.com/open-policy-agent/opa/v1/plugins"
-	"github.com/open-policy-agent/opa/v1/storage"
 )
 
 const PluginName = "example_source_provider"
@@ -29,6 +28,7 @@ type Plugin struct {
 	manager *plugins.Manager
 	config  Config
 	source  ast.ExternalRuleSource
+	pkgRef  ast.Ref
 	logger  logging.Logger
 }
 
@@ -52,54 +52,53 @@ func (Factory) Validate(manager *plugins.Manager, config []byte) (any, error) {
 }
 
 func (Factory) New(manager *plugins.Manager, config any) plugins.Plugin {
+	parsedConfig := config.(Config)
+	logger := manager.Logger().WithFields(map[string]any{"plugin": PluginName})
+
+	pkgRef := ast.MustParseRef(parsedConfig.PackageRef)
+
+	var rules []*ast.Rule
+	for i, ruleStr := range parsedConfig.Rules {
+		moduleName := fmt.Sprintf("rule%d", i)
+		module, err := ast.ParseModuleWithOpts(
+			moduleName,
+			ruleStr,
+			manager.ParserOptions(),
+		)
+		if err != nil {
+			panic(fmt.Sprintf("failed to parse rule %d: %v", i, err))
+		}
+
+		compiler := ast.NewCompiler()
+		compiler.Compile(map[string]*ast.Module{moduleName: module})
+		if compiler.Failed() {
+			panic(fmt.Sprintf("failed to compile rule %d: %v", i, compiler.Errors))
+		}
+
+		compiledModule := compiler.Modules[moduleName]
+		for _, rule := range compiledModule.Rules {
+			rules = append(rules, rule)
+		}
+	}
+
+	source := sp.NewStaticSource([]ast.Ref{pkgRef}, rules)
+
+	// Register external source with manager - this ensures it will be
+	// applied to all compilers BEFORE they are compiled
+	logger.Debug("Registering external source %v with manager", pkgRef.String())
+	manager.RegisterExternalSource(pkgRef, source)
+
 	return &Plugin{
 		manager: manager,
-		config:  config.(Config),
-		logger:  manager.Logger().WithFields(map[string]any{"plugin": PluginName}),
+		config:  parsedConfig,
+		source:  source,
+		pkgRef:  pkgRef,
+		logger:  logger,
 	}
 }
 
 func (p *Plugin) Start(ctx context.Context) error {
 	p.logger.Info("Starting example source provider plugin.")
-
-	pkgRef, err := ast.ParseRef(p.config.PackageRef)
-	if err != nil {
-		return fmt.Errorf("invalid package_ref: %w", err)
-	}
-
-	var rules []*ast.Rule
-	for i, ruleStr := range p.config.Rules {
-		module, err := ast.ParseModuleWithOpts(
-			fmt.Sprintf("rule%d", i),
-			ruleStr,
-			p.manager.ParserOptions(),
-		)
-		if err != nil {
-			return fmt.Errorf("failed to parse rule %d: %w", i, err)
-		}
-		for _, rule := range module.Rules {
-			rules = append(rules, rule)
-		}
-	}
-
-	p.source = sp.NewStaticSource([]ast.Ref{pkgRef}, rules)
-
-	p.logger.Info("Registering external source for package: %s", pkgRef.String())
-
-	p.manager.RegisterCompilerTrigger(func(storage.Transaction) {
-		compiler := p.manager.GetCompiler()
-		p.logger.Debug("Compiler trigger fired, compiler available: %v", compiler != nil)
-		if compiler != nil {
-			p.logger.Debug("Registering external source %v with compiler<%p>", pkgRef.String(), compiler)
-			compiler.WithExternalSource(pkgRef, p.source)
-		}
-	})
-
-	if compiler := p.manager.GetCompiler(); compiler != nil {
-		p.logger.Debug("Initial registration of external source %v with compiler<%p>", pkgRef.String(), compiler)
-		compiler.WithExternalSource(pkgRef, p.source)
-	}
-
 	p.manager.UpdatePluginStatus(PluginName, &plugins.Status{State: plugins.StateOK})
 	return nil
 }

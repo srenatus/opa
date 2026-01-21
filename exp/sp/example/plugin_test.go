@@ -87,8 +87,8 @@ allow := true if { input.role == "admin" }`,
 		t.Fatalf("Failed to get rules: %v", err)
 	}
 
-	if len(rules.Rules) != 1 {
-		t.Errorf("Expected 1 rule, got %d", len(rules.Rules))
+	if len(rules) != 1 {
+		t.Errorf("Expected 1 rule, got %d", len(rules))
 	}
 
 	manager.Stop(ctx)
@@ -192,16 +192,17 @@ rule3 := 3 if { true }`,
 	index, _ := source.Init(ctx, pkgRef)
 	rules, _ := index.AllRules(ctx, nil)
 
-	if len(rules.Rules) != 3 {
-		t.Errorf("Expected 3 rules, got %d", len(rules.Rules))
+	if len(rules) != 3 {
+		t.Errorf("Expected 3 rules, got %d", len(rules))
 	}
 }
 
 func TestPluginWithSDK(t *testing.T) {
-	ctx := t.Context()
+	ctx := context.Background()
 	server := sdktest.MustNewServer(
 		sdktest.MockBundle("/bundles/bundle.tar.gz", map[string]string{
 			"main.rego": `package authz
+default allow := false
 allow if data.external.authz.allow
 `,
 		}),
@@ -243,7 +244,7 @@ allow if data.external.authz.allow
 
 	t.Run("admin role allowed", func(t *testing.T) {
 		result, err := opa.Decision(ctx, sdk.DecisionOptions{
-			Path: "external/authz/allow",
+			Path: "authz/allow",
 			Input: map[string]any{
 				"role": "admin",
 			},
@@ -257,16 +258,19 @@ allow if data.external.authz.allow
 		}
 	})
 
-	t.Run("non-admin role undefined", func(t *testing.T) {
-		_, err := opa.Decision(ctx, sdk.DecisionOptions{
-			Path: "external/authz/allow",
+	t.Run("non-admin role not allowed", func(t *testing.T) {
+		result, err := opa.Decision(ctx, sdk.DecisionOptions{
+			Path: "authz/allow",
 			Input: map[string]any{
 				"role": "user",
 			},
 		})
+		if err != nil {
+			t.Fatalf("Decision failed: %v", err)
+		}
 
-		if !sdk.IsUndefinedErr(err) {
-			t.Errorf("Expected undefined error for non-admin role, got: %v", err)
+		if result.Result != false {
+			t.Errorf("Expected allow=false for user role, got %v", result.Result)
 		}
 	})
 }

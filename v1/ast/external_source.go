@@ -20,6 +20,6 @@ type ExternalRuleSource interface {
 
 // ExternalRuleIndex mirrors RuleIndex, but add a [context.Context] parameter.
 type ExternalRuleIndex interface {
-	Lookup(context.Context, ValueResolver) (*IndexResult, error)
-	AllRules(context.Context, ValueResolver) (*IndexResult, error)
+	Lookup(context.Context, ValueResolver) ([]*Rule, error)
+	AllRules(context.Context, ValueResolver) ([]*Rule, error)
 }

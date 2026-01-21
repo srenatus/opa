@@ -27,7 +27,7 @@ func (m *mockExternalSource) Refs() []Ref {
 	return m.refs
 }
 
-func (m *mockExternalSource) Init(context.Context) (ExternalRuleIndex, error) {
+func (m *mockExternalSource) Init(context.Context, Ref) (ExternalRuleIndex, error) {
 	return &mockExternalIndex{rules: m.rules, callCount: &m.callCount}, nil
 }
 
@@ -36,12 +36,12 @@ type mockExternalIndex struct {
 	callCount *int32
 }
 
-func (m *mockExternalIndex) Lookup(ctx context.Context, ref Ref, input *Term, resolver ValueResolver) ([]*Rule, error) {
+func (m *mockExternalIndex) Lookup(context.Context, ValueResolver) ([]*Rule, error) {
 	atomic.AddInt32(m.callCount, 1)
 	return m.rules, nil
 }
 
-func (m *mockExternalIndex) AllRules(ctx context.Context, ref Ref, input *Term) ([]*Rule, error) {
+func (m *mockExternalIndex) AllRules(context.Context, ValueResolver) ([]*Rule, error) {
 	atomic.AddInt32(m.callCount, 1)
 	return m.rules, nil
 }
@@ -164,11 +164,9 @@ func TestIterateExternalSources(t *testing.T) {
 	}
 }
 
-func TestExternalSourceInputParameter(t *testing.T) {
-	var receivedInput *Term
-
+func TestExternalSourceValueResolverParameter(t *testing.T) {
 	packageRef := MustParseRef("data.capture")
-	captureSource := &inputCapturingSource{
+	captureSource := &resolverCapturingSource{
 		refs: []Ref{packageRef},
 		rules: []*Rule{
 			{
@@ -179,35 +177,25 @@ func TestExternalSourceInputParameter(t *testing.T) {
 				Body: NewBody(NewExpr(BooleanTerm(true))),
 			},
 		},
-		captureFunc: func(input *Term) {
-			receivedInput = input
-		},
 	}
 
 	compiler := NewCompiler()
 	compiler.WithExternalSource(packageRef, captureSource)
 
-	testInput := ObjectTerm(Item(StringTerm("key"), StringTerm("value")))
 	testRef := MustParseRef("data.test")
 
-	index, err := captureSource.Init(t.Context())
+	index, err := captureSource.Init(t.Context(), testRef)
 	if err != nil {
 		t.Fatalf("Init failed: %v", err)
 	}
 
-	rules, err := index.AllRules(t.Context(), testRef, testInput)
+	rules, err := index.AllRules(t.Context(), nil)
 	if err != nil {
 		t.Fatalf("AllRules failed: %v", err)
 	}
 
 	if len(rules) == 0 {
 		t.Error("Expected rules from source")
-	}
-
-	if receivedInput == nil {
-		t.Error("Expected input to be captured")
-	} else if !receivedInput.Equal(testInput) {
-		t.Errorf("Expected input %v, got %v", testInput, receivedInput)
 	}
 }
 
@@ -295,7 +283,7 @@ func TestExternalSourceError(t *testing.T) {
 		t.Error("Expected nil RuleIndex for external source")
 	}
 
-	idx, err := errorSource.Init(t.Context())
+	idx, err := errorSource.Init(t.Context(), packageRef)
 	if err == nil {
 		t.Error("Expected error from Init")
 	}
@@ -304,36 +292,28 @@ func TestExternalSourceError(t *testing.T) {
 	}
 }
 
-type inputCapturingSource struct {
-	refs        []Ref
-	rules       []*Rule
-	captureFunc func(*Term)
+type resolverCapturingSource struct {
+	refs  []Ref
+	rules []*Rule
 }
 
-func (s *inputCapturingSource) Refs() []Ref {
+func (s *resolverCapturingSource) Refs() []Ref {
 	return s.refs
 }
 
-func (s *inputCapturingSource) Init(context.Context) (ExternalRuleIndex, error) {
-	return &inputCapturingIndex{rules: s.rules, captureFunc: s.captureFunc}, nil
+func (s *resolverCapturingSource) Init(context.Context, Ref) (ExternalRuleIndex, error) {
+	return &resolverCapturingIndex{rules: s.rules}, nil
 }
 
-type inputCapturingIndex struct {
-	rules       []*Rule
-	captureFunc func(*Term)
+type resolverCapturingIndex struct {
+	rules []*Rule
 }
 
-func (s *inputCapturingIndex) Lookup(ctx context.Context, ref Ref, input *Term, resolver ValueResolver) ([]*Rule, error) {
-	if s.captureFunc != nil {
-		s.captureFunc(input)
-	}
+func (s *resolverCapturingIndex) Lookup(ctx context.Context, resolver ValueResolver) ([]*Rule, error) {
 	return s.rules, nil
 }
 
-func (s *inputCapturingIndex) AllRules(ctx context.Context, ref Ref, input *Term) ([]*Rule, error) {
-	if s.captureFunc != nil {
-		s.captureFunc(input)
-	}
+func (s *resolverCapturingIndex) AllRules(ctx context.Context, resolver ValueResolver) ([]*Rule, error) {
 	return s.rules, nil
 }
 
@@ -346,6 +326,6 @@ func (e *errorExternalSource) Refs() []Ref {
 	return e.refs
 }
 
-func (e *errorExternalSource) Init(context.Context) (ExternalRuleIndex, error) {
+func (e *errorExternalSource) Init(context.Context, Ref) (ExternalRuleIndex, error) {
 	return nil, e.err
 }

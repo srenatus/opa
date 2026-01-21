@@ -15,7 +15,7 @@ type countingExternalSource struct {
 	callCount int32
 }
 
-func (m *countingExternalSource) Init(_ context.Context, r ast.Ref) (ast.ExternalRuleIndex, error) {
+func (m *countingExternalSource) Init(context.Context, ast.Ref) (ast.ExternalRuleIndex, error) {
 	return &countingExternalIndex{rules: m.rules, callCount: &m.callCount}, nil
 }
 
@@ -28,14 +28,14 @@ type countingExternalIndex struct {
 	callCount *int32
 }
 
-func (m *countingExternalIndex) Lookup(context.Context, ast.ValueResolver) (*ast.IndexResult, error) {
+func (m *countingExternalIndex) Lookup(context.Context, ast.ValueResolver) ([]*ast.Rule, error) {
 	atomic.AddInt32(m.callCount, 1)
-	return &ast.IndexResult{Rules: m.rules}, nil
+	return m.rules, nil
 }
 
-func (m *countingExternalIndex) AllRules(context.Context, ast.ValueResolver) (*ast.IndexResult, error) {
+func (m *countingExternalIndex) AllRules(context.Context, ast.ValueResolver) ([]*ast.Rule, error) {
 	atomic.AddInt32(m.callCount, 1)
-	return &ast.IndexResult{Rules: m.rules}, nil
+	return m.rules, nil
 }
 
 func (m *countingExternalSource) getCallCount() int {
@@ -114,8 +114,9 @@ result if data.test.foo`)
 		t.Fatal("Expected RuleTree to have node for external source path")
 	}
 
-	if idx := compiler.RuleIndex(packageRef); idx != nil {
-		t.Fatalf("Expected RuleIndex to return nil for external source path, got %v", idx)
+	idx := compiler.RuleIndex(packageRef)
+	if idx == nil {
+		t.Fatal("Expected RuleIndex to return wrapped external index for external source path")
 	}
 
 	src := compiler.GetExternalSource(packageRef)
@@ -154,37 +155,36 @@ allowed if {
 	packageRef := ast.MustParseRef("data.authz")
 	compiledModule := compileExternalModule(t, externalModule)
 	source := &countingExternalSource{refs: []ast.Ref{packageRef}, rules: compiledModule.Rules}
-	// cachedSource := sp.NewCachedSource(source)
 
 	staticModule := ast.MustParseModule(`package main
 check if data.authz.allowed`)
 
 	compiler := setupCompiler(t, packageRef, source, staticModule)
 
-	testCase := func(t *testing.T, inputJSON string, expectResults int) {
+	testCase := func(t *testing.T, inputJSON string, callCountExp int, expectResult bool) {
 		t.Helper()
 		source.resetCount()
 
 		input := ast.MustParseTerm(inputJSON)
 		qrs := runQuery(t, compiler, "data.main.check", input)
 
-		if len(qrs) != expectResults {
-			t.Fatalf("Expected %d result(s), got %d", expectResults, len(qrs))
+		if (len(qrs) == 1) != expectResult {
+			t.Fatalf("Expected one result, got %d", len(qrs))
 		}
 
-		if callCount := source.getCallCount(); callCount != 1 {
-			t.Errorf("Expected external source to be called once, got %d calls", callCount)
+		if callCount := source.getCallCount(); callCount != callCountExp {
+			t.Errorf("Expected external source to be called %d time(s), got %d calls", callCountExp, callCount)
 		}
 	}
 
 	t.Run("alice_read_allowed", func(t *testing.T) {
-		testCase(t, `{"user": "alice", "action": "read"}`, 1)
+		testCase(t, `{"user": "alice", "action": "read"}`, 3, true)
 	})
 	t.Run("alice_delete_denied", func(t *testing.T) {
-		testCase(t, `{"user": "alice", "action": "delete"}`, 0)
+		testCase(t, `{"user": "alice", "action": "delete"}`, 2, false)
 	})
 	t.Run("bob_read_denied", func(t *testing.T) {
-		testCase(t, `{"user": "bob", "action": "read"}`, 0)
+		testCase(t, `{"user": "bob", "action": "read"}`, 2, false)
 	})
 }
 
@@ -279,8 +279,8 @@ check if data.authz.allowed`)
 		t.Errorf("Expected 1 result, got %d", len(qrs))
 	}
 
-	if callCount := source.getCallCount(); callCount != 1 {
-		t.Errorf("Expected external source to be called once (all package rules cached together), got %d calls", callCount)
+	if callCount := source.getCallCount(); callCount != 3 {
+		t.Errorf("Expected external source to be called 3 times (once per rule: allowed, allow, deny), got %d calls", callCount)
 	}
 }
 

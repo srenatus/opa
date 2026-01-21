@@ -1666,10 +1666,6 @@ func (e *eval) getRules(ref ast.Ref, args []*ast.Term) (*ast.IndexResult, error)
 
 	var extIndex ast.ExternalRuleIndex
 	index := e.compiler.RuleIndex(ref)
-	if ext, ok := index.(interface{ ExternalRI() ast.ExternalRuleIndex }); ok {
-		extIndex = ext.ExternalRI()
-	}
-
 	if index == nil {
 		return nil, nil
 	}
@@ -1683,23 +1679,35 @@ func (e *eval) getRules(ref ast.Ref, args []*ast.Term) (*ast.IndexResult, error)
 
 	var result *ast.IndexResult
 	var err error
-	resolver.e = e
-	if e.indexing {
-		resolver.args = args
-		if extIndex != nil {
-			result, err = extIndex.Lookup(e.ctx, resolver)
+
+	if ext, ok := index.(interface{ ExternalRI() ast.ExternalRuleIndex }); ok {
+		extIndex = ext.ExternalRI()
+		resolver.e = e
+		var rules []*ast.Rule
+		if e.indexing {
+			resolver.args = args
+			rules, err = extIndex.Lookup(e.ctx, resolver)
 		} else {
-			result, err = index.Lookup(resolver)
+			rules, err = extIndex.AllRules(e.ctx, resolver)
+		}
+		if err != nil {
+			return nil, err
+		}
+		result = &ast.IndexResult{
+			Rules:          rules,
+			OnlyGroundRefs: false, // NB(sr): We do this on purpose -- we want the package-ref to work with evalVirtual
 		}
 	} else {
-		if extIndex != nil {
-			result, err = extIndex.AllRules(e.ctx, resolver)
+		resolver.e = e
+		if e.indexing {
+			resolver.args = args
+			result, err = index.Lookup(resolver)
 		} else {
 			result, err = index.AllRules(resolver)
 		}
-	}
-	if err != nil {
-		return nil, err
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	result.EarlyExit = result.EarlyExit && e.earlyExit

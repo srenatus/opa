@@ -223,6 +223,8 @@ type Manager struct {
 	extraMiddlewares             []func(http.Handler) http.Handler
 	extraAuthorizerRoutes        []func(string, []any) bool
 	bundleActivatorPlugin        string
+	externalSources              map[string]ast.ExternalRuleSource // keyed by package ref string
+	externalSourcesMux           sync.RWMutex
 }
 
 type (
@@ -563,6 +565,7 @@ func (m *Manager) Init(ctx context.Context) error {
 			EnablePrintStatements: m.enablePrintStatements,
 			ParserOptions:         m.parserOptions,
 			BundleActivatorPlugin: m.bundleActivatorPlugin,
+			ExternalSources:       m.GetExternalSources(),
 		})
 		if err != nil {
 			return err
@@ -758,6 +761,35 @@ func (m *Manager) setWasmResolvers(rs []*wasm.Resolver) {
 	m.wasmResolversMtx.Lock()
 	defer m.wasmResolversMtx.Unlock()
 	m.wasmResolvers = rs
+}
+
+// RegisterExternalSource registers an external rule source with the manager.
+// The source will be applied to all compilers created by the manager.
+// This should be called from a plugin's constructor or Start() method.
+func (m *Manager) RegisterExternalSource(pkgRef ast.Ref, source ast.ExternalRuleSource) {
+	m.externalSourcesMux.Lock()
+	defer m.externalSourcesMux.Unlock()
+
+	if m.externalSources == nil {
+		m.externalSources = make(map[string]ast.ExternalRuleSource)
+	}
+
+	key := pkgRef.String()
+	m.externalSources[key] = source
+
+	m.logger.Debug("Registered external source for package: %s", key)
+}
+
+// GetExternalSources returns a copy of all registered external sources
+func (m *Manager) GetExternalSources() map[string]ast.ExternalRuleSource {
+	m.externalSourcesMux.RLock()
+	defer m.externalSourcesMux.RUnlock()
+
+	result := make(map[string]ast.ExternalRuleSource, len(m.externalSources))
+	for k, v := range m.externalSources {
+		result[k] = v
+	}
+	return result
 }
 
 // Start starts the manager. Init() should be called once before Start().
@@ -967,7 +999,7 @@ func (m *Manager) onCommit(ctx context.Context, txn storage.Transaction, event s
 	// compiler on the context but the server does not (nor would users
 	// implementing their own policy loading.)
 	if compiler == nil && event.PolicyChanged() {
-		compiler, _ = loadCompilerFromStore(ctx, m.Store, txn, m.enablePrintStatements, m.ParserOptions())
+		compiler, _ = loadCompilerFromStoreWithExternalSources(ctx, m.Store, txn, m.enablePrintStatements, m.ParserOptions(), m.GetExternalSources())
 	}
 
 	if compiler != nil {
@@ -1004,6 +1036,10 @@ func (m *Manager) onCommit(ctx context.Context, txn storage.Transaction, event s
 }
 
 func loadCompilerFromStore(ctx context.Context, store storage.Store, txn storage.Transaction, enablePrintStatements bool, popts ast.ParserOptions) (*ast.Compiler, error) {
+	return loadCompilerFromStoreWithExternalSources(ctx, store, txn, enablePrintStatements, popts, nil)
+}
+
+func loadCompilerFromStoreWithExternalSources(ctx context.Context, store storage.Store, txn storage.Transaction, enablePrintStatements bool, popts ast.ParserOptions, externalSources map[string]ast.ExternalRuleSource) (*ast.Compiler, error) {
 	policies, err := store.ListPolicies(ctx, txn)
 	if err != nil {
 		return nil, err
@@ -1027,6 +1063,15 @@ func loadCompilerFromStore(ctx context.Context, store storage.Store, txn storage
 
 	if popts.RegoVersion != ast.RegoUndefined {
 		compiler = compiler.WithDefaultRegoVersion(popts.RegoVersion)
+	}
+
+	// Apply external sources BEFORE compilation
+	for refStr, source := range externalSources {
+		ref, err := ast.ParseRef(refStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid external source ref %s: %w", refStr, err)
+		}
+		compiler = compiler.WithExternalSource(ref, source)
 	}
 
 	compiler.Compile(modules)
