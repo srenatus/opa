@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/open-policy-agent/opa/v1/sdk"
 	sdktest "github.com/open-policy-agent/opa/v1/sdk/test"
 	"github.com/open-policy-agent/opa/v1/storage/inmem"
+	"github.com/open-policy-agent/opa/v1/topdown"
 )
 
 func TestPluginLifecycle(t *testing.T) {
@@ -198,7 +200,7 @@ rule3 := 3 if { true }`,
 }
 
 func TestPluginWithSDK(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	server := sdktest.MustNewServer(
 		sdktest.MockBundle("/bundles/bundle.tar.gz", map[string]string{
 			"main.rego": `package authz
@@ -243,11 +245,13 @@ allow if data.external.authz.allow
 	defer opa.Stop(ctx)
 
 	t.Run("admin role allowed", func(t *testing.T) {
+		tracer := topdown.NewBufferTracer()
 		result, err := opa.Decision(ctx, sdk.DecisionOptions{
 			Path: "authz/allow",
 			Input: map[string]any{
 				"role": "admin",
 			},
+			Tracer: tracer,
 		})
 		if err != nil {
 			t.Fatalf("Decision failed: %v", err)
@@ -256,14 +260,18 @@ allow if data.external.authz.allow
 		if result.Result != true {
 			t.Errorf("Expected allow=true for admin role, got %v", result.Result)
 		}
+
+		topdown.PrettyTrace(os.Stderr, *tracer)
 	})
 
 	t.Run("non-admin role not allowed", func(t *testing.T) {
+		tracer := topdown.NewBufferTracer()
 		result, err := opa.Decision(ctx, sdk.DecisionOptions{
 			Path: "authz/allow",
 			Input: map[string]any{
 				"role": "user",
 			},
+			Tracer: tracer,
 		})
 		if err != nil {
 			t.Fatalf("Decision failed: %v", err)
@@ -272,5 +280,25 @@ allow if data.external.authz.allow
 		if result.Result != false {
 			t.Errorf("Expected allow=false for user role, got %v", result.Result)
 		}
+
+		topdown.PrettyTrace(os.Stderr, *tracer)
+	})
+
+	t.Run("partial eval into external rule", func(t *testing.T) {
+		tracer := topdown.NewBufferTracer()
+		result, err := opa.Partial(ctx, sdk.PartialOptions{
+			Query:    "data.authz.allow",
+			Unknowns: []string{"input"},
+			Tracer:   tracer,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		topdown.PrettyTrace(os.Stderr, *tracer)
+
+		if result.AST == nil {
+			t.Fatal("expected AST, got nil")
+		}
+		t.Logf("Result: %v", result.AST.Queries[0][0].Terms)
 	})
 }

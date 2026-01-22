@@ -20,15 +20,15 @@ import (
 const PluginName = "example_source_provider"
 
 type Config struct {
-	PackageRef string   `json:"package_ref"`
-	Rules      []string `json:"rules"`
+	PackageRefs []string `json:"package_refs"`
+	Rules       []string `json:"rules"`
 }
 
 type Plugin struct {
 	manager *plugins.Manager
 	config  Config
 	source  ast.ExternalRuleSource
-	pkgRef  ast.Ref
+	pkgRefs []ast.Ref
 	logger  logging.Logger
 }
 
@@ -40,12 +40,14 @@ func (Factory) Validate(manager *plugins.Manager, config []byte) (any, error) {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 
-	if parsedConfig.PackageRef == "" {
-		return nil, fmt.Errorf("package_ref is required")
+	if len(parsedConfig.PackageRefs) == 0 {
+		return nil, fmt.Errorf("package_refs is required")
 	}
 
-	if _, err := ast.ParseRef(parsedConfig.PackageRef); err != nil {
-		return nil, fmt.Errorf("invalid package_ref: %w", err)
+	for i, pkgRef := range parsedConfig.PackageRefs {
+		if _, err := ast.ParseRef(pkgRef); err != nil {
+			return nil, fmt.Errorf("invalid package_refs[%d]: %w", i, err)
+		}
 	}
 
 	return parsedConfig, nil
@@ -55,9 +57,12 @@ func (Factory) New(manager *plugins.Manager, config any) plugins.Plugin {
 	parsedConfig := config.(Config)
 	logger := manager.Logger().WithFields(map[string]any{"plugin": PluginName})
 
-	pkgRef := ast.MustParseRef(parsedConfig.PackageRef)
+	pkgRefs := make([]ast.Ref, 0, len(parsedConfig.PackageRefs))
+	for _, pkgRefStr := range parsedConfig.PackageRefs {
+		pkgRefs = append(pkgRefs, ast.MustParseRef(pkgRefStr))
+	}
 
-	var rules []*ast.Rule
+	rulesByPkg := make(map[string][]*ast.Rule)
 	for i, ruleStr := range parsedConfig.Rules {
 		moduleName := fmt.Sprintf("rule%d", i)
 		module, err := ast.ParseModuleWithOpts(
@@ -76,23 +81,32 @@ func (Factory) New(manager *plugins.Manager, config any) plugins.Plugin {
 		}
 
 		compiledModule := compiler.Modules[moduleName]
+
+		var modulePkgRef ast.Ref
+		if compiledModule.Package.Path[0].Equal(ast.DefaultRootDocument) {
+			modulePkgRef = compiledModule.Package.Path
+		} else {
+			modulePkgRef = ast.Ref([]*ast.Term{ast.DefaultRootDocument}).Concat(compiledModule.Package.Path)
+		}
+		pkgRefStr := modulePkgRef.String()
+
 		for _, rule := range compiledModule.Rules {
-			rules = append(rules, rule)
+			rulesByPkg[pkgRefStr] = append(rulesByPkg[pkgRefStr], rule)
 		}
 	}
 
-	source := sp.NewStaticSource([]ast.Ref{pkgRef}, rules)
+	source := sp.NewStaticSourceFromMap(pkgRefs, rulesByPkg)
 
-	// Register external source with manager - this ensures it will be
-	// applied to all compilers BEFORE they are compiled
-	logger.Debug("Registering external source %v with manager", pkgRef.String())
-	manager.RegisterExternalSource(pkgRef, source)
+	for _, pkgRef := range pkgRefs {
+		logger.Debug("Registering external source %v with manager", pkgRef.String())
+		manager.RegisterExternalSource(pkgRef, source)
+	}
 
 	return &Plugin{
 		manager: manager,
 		config:  parsedConfig,
 		source:  source,
-		pkgRef:  pkgRef,
+		pkgRefs: pkgRefs,
 		logger:  logger,
 	}
 }

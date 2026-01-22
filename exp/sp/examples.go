@@ -11,12 +11,27 @@ import (
 )
 
 type StaticSource struct {
-	refs  []ast.Ref
-	rules []*ast.Rule
+	refs       []ast.Ref
+	rulesByPkg map[string][]*ast.Rule
 }
 
 func NewStaticSource(refs []ast.Ref, rules []*ast.Rule) *StaticSource {
-	return &StaticSource{refs: refs, rules: rules}
+	rulesByPkg := make(map[string][]*ast.Rule)
+	for _, rule := range rules {
+		ruleRef := rule.Head.Ref()
+		for _, pkgRef := range refs {
+			if ruleRef.HasPrefix(pkgRef) {
+				key := pkgRef.String()
+				rulesByPkg[key] = append(rulesByPkg[key], rule)
+				break
+			}
+		}
+	}
+	return &StaticSource{refs: refs, rulesByPkg: rulesByPkg}
+}
+
+func NewStaticSourceFromMap(refs []ast.Ref, rulesByPkg map[string][]*ast.Rule) *StaticSource {
+	return &StaticSource{refs: refs, rulesByPkg: rulesByPkg}
 }
 
 func (s *StaticSource) Refs() []ast.Ref {
@@ -25,8 +40,10 @@ func (s *StaticSource) Refs() []ast.Ref {
 
 func (s *StaticSource) Init(_ context.Context, r ast.Ref) (ast.ExternalRuleIndex, error) {
 	rules := []*ast.Rule{}
-	for i := range s.rules {
-		rules = append(rules, s.rules[i].Copy())
+	if pkgRules, ok := s.rulesByPkg[r.String()]; ok {
+		for i := range pkgRules {
+			rules = append(rules, pkgRules[i].Copy())
+		}
 	}
 	return &staticIndex{rules: rules}, nil
 }
