@@ -1,8 +1,38 @@
 #ifndef OPA_WCHAR_H
 #define OPA_WCHAR_H
 
+#ifdef __cplusplus
+// When using C++, we just provide minimal definitions that Zig's libc++ needs
+// and let it include Zig's wchar.h
+#if !defined(_MBSTATE_T_DEFINED) && !defined(__mbstate_t_defined) && !defined(_MBSTATE_T)
+extern "C" {
+typedef struct {
+    unsigned int __opaque1, __opaque2;
+} mbstate_t;
+}
+#define _MBSTATE_T_DEFINED
+#define _MBSTATE_T
+#endif
+// Now include Zig's wchar.h if available
+#if __has_include_next(<wchar.h>)
+#include_next <wchar.h>
+#endif
+#else
+// For C code, use our minimal implementation
 #include <stddef.h>
 #include <stdint.h>
+
+#if defined(__has_include)
+#  if __has_include_next(<wchar.h>)
+#    include_next <wchar.h>
+#  else
+#    define OPA_NEED_WCHAR_DECLS
+#  endif
+#else
+#  define OPA_NEED_WCHAR_DECLS
+#endif
+
+#ifdef OPA_NEED_WCHAR_DECLS
 #include <stdio.h>
 #include <time.h>
 
@@ -10,12 +40,12 @@
 extern "C" {
 #endif
 
-typedef __WINT_TYPE__ wint_t;
-
 typedef struct
 {
     int __internal;
 } mbstate_t;
+
+typedef __WINT_TYPE__ wint_t;
 
 #define WEOF (0xffffffffu)
 
@@ -25,8 +55,6 @@ wchar_t *wmemmove(wchar_t *dest, const wchar_t *src, size_t n);
 wchar_t *wmemcpy(wchar_t *dest, const wchar_t *src, size_t n);
 wchar_t *wmemset(wchar_t *wcs, wchar_t wc, size_t n);
 size_t wcslen(const wchar_t* s);
-
-// not implemented:
 
 wint_t btowc(int c);
 wint_t fgetwc(FILE* stream);
@@ -87,6 +115,8 @@ unsigned long long wcstoull(const wchar_t* nptr, wchar_t** endptr, int base);
 
 #ifdef __cplusplus
 }
+#endif
+#endif
 #endif
 
 #endif

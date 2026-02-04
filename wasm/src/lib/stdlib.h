@@ -3,25 +3,24 @@
 
 #include <stddef.h>
 
+#if defined(__has_include)
+#  if __has_include_next(<stdlib.h>)
+#    include_next <stdlib.h>
+#  else
+#    define OPA_NEED_STDLIB_DECLS
+#  endif
+#else
+#  define OPA_NEED_STDLIB_DECLS
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 void opa_abort(const char *msg);
 __attribute__((import_name("opa_abort"))) void opa_abort_(const char *msg);
-void abort(void);
-void *malloc(size_t size);
-void free(void *ptr);
-void *calloc(size_t nmemb, size_t size);
-void *realloc(void *ptr, size_t size);
 
-double strtod(const char *nptr, char **endptr);
-float strtof(const char *nptr, char **endptr);
-long int strtol(const char *nptr, char **endptr, int base);
-long long int strtoll(const char *nptr, char **endptr, int base);
-unsigned long int strtoul(const char *nptr, char **endptr, int base);
-unsigned long long int strtoull(const char *nptr, char **endptr, int base);
-
+#if !defined(_DIV_T_DEFINED) && !defined(__div_t_defined)
 typedef struct
 {
     int quot;
@@ -39,8 +38,22 @@ typedef struct
     long long int quot;
     long long int rem;
 } lldiv_t;
+#define _DIV_T_DEFINED
+#endif
 
-// not implemented:
+#ifdef OPA_NEED_STDLIB_DECLS
+void abort(void);
+void *malloc(size_t size);
+void free(void *ptr);
+void *calloc(size_t nmemb, size_t size);
+void *realloc(void *ptr, size_t size);
+
+double strtod(const char *nptr, char **endptr);
+float strtof(const char *nptr, char **endptr);
+long int strtol(const char *nptr, char **endptr, int base);
+long long int strtoll(const char *nptr, char **endptr, int base);
+unsigned long int strtoul(const char *nptr, char **endptr, int base);
+unsigned long long int strtoull(const char *nptr, char **endptr, int base);
 
 int abs(int j);
 long int labs(long int j);
@@ -82,6 +95,7 @@ int system(const char *command);
 
 int wctomb(char *s, wchar_t wc);
 size_t wcstombs(char *dest, const wchar_t *src, size_t n);
+#endif
 
 #ifdef __cplusplus
 }

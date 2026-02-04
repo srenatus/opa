@@ -1,6 +1,17 @@
 #ifndef OPA_STRING_H
 #define OPA_STRING_H
 
+#if defined(__has_include)
+#  if __has_include_next(<string.h>)
+#    include_next <string.h>
+#  else
+#    define OPA_NEED_STRING_DECLS
+#  endif
+#else
+#  define OPA_NEED_STRING_DECLS
+#endif
+
+#ifdef OPA_NEED_STRING_DECLS
 #include <stddef.h>
 
 #ifdef __cplusplus
@@ -14,8 +25,6 @@ void *memmove(void *dest, const void *src, size_t n);
 void *memset(void *s, int c, size_t n);
 char *strchr(const char *s, int c);
 size_t strlen(const char *s);
-
-// not implemented:
 
 char *strcat(char *dest, const char *src);
 int strcmp(const char *s1, const char *s2);
@@ -35,6 +44,7 @@ size_t strxfrm(char *dest, const char *src, size_t n);
 
 #ifdef __cplusplus
 }
+#endif
 #endif
 
 #endif

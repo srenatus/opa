@@ -1,6 +1,34 @@
 #ifndef OPA_MATH_H
 #define OPA_MATH_H
 
+#if defined(__has_include)
+#  if __has_include_next(<math.h>)
+#    include_next <math.h>
+#  else
+#    define OPA_NEED_MATH_DECLS
+#  endif
+#else
+#  define OPA_NEED_MATH_DECLS
+#endif
+
+#ifndef INFINITY
+#define INFINITY (__builtin_inff())
+#endif
+
+#ifndef NAN
+#define NAN (__builtin_nanf(""))
+#endif
+
+#ifndef FP_NAN
+#define FP_NAN 0
+#define FP_INFINITE 1
+#define FP_ZERO 2
+#define FP_SUBNORMAL 3
+#define FP_NORMAL 4
+#endif
+
+#ifdef OPA_NEED_MATH_DECLS
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -10,10 +38,6 @@ typedef double double_t;
 
 double ceil(double x);
 double log10(double x);
-
-// not implemented:
-
-#define INFINITY (__builtin_inff())
 
 double acos(double x);
 float acosf(float x);
@@ -241,6 +265,12 @@ double trunc(double x);
 float truncf(float x);
 long double truncl(long double x);
 
+#ifdef __cplusplus
+}
+#endif
+#endif
+
+#ifndef __cplusplus
 int fpclassify(float x);
 int isfinite(float x);
 int isgreater(float x, float y);
@@ -253,9 +283,6 @@ int isnan(float x);
 int isnormal(float x);
 int isunordered(float x, float y);
 int signbit(float x);
-
-#ifdef __cplusplus
-}
 #endif
 
 #endif

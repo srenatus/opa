@@ -12,12 +12,19 @@ WASM_BUILDER_VERSION := 1.6
 WASM_BUILDER_IMAGE := $(DOCKER_WASM_BUILDER_IMAGE):$(WASM_BUILDER_VERSION)
 WASM_OBJ_DIR := _obj
 
+# When building locally without Docker, detect Zig's library paths
+ifneq ($(USE_DOCKER), 1)
+ZIG_LIB_DIR := $(shell zig env 2>/dev/null | grep lib_dir | cut -d'"' -f2)
+ifneq ($(ZIG_LIB_DIR),)
+ZIG_LIBCXX_INCLUDE := $(ZIG_LIB_DIR)/libcxx/include
+ZIG_INCLUDE := $(ZIG_LIB_DIR)/include
+endif
+endif
+
 CFLAGS += \
 	-MD \
 	-MP \
-	-nodefaultlibs \
-	--target=wasm32-unknown-unknown-wasm \
-	-I src/lib \
+	--target=wasm32-freestanding \
 	-I src/libmpdec \
 	-DCONFIG_32 \
 	-DANSI
@@ -26,17 +33,46 @@ CPPFLAGS += \
 	-std=c++17 \
 	-MD \
 	-MP \
-	-nodefaultlibs \
-	--target=wasm32-unknown-unknown-wasm \
+	--target=wasm32-freestanding \
 	-fno-exceptions \
 	-fno-rtti \
-	-I src/lib \
-	-I src/libc++ \
-	-I /usr/lib/llvm-13/include/c++/v1 \
-	-I /usr/lib/llvm-13/lib/clang/13.0.0/include \
-	-I src/re2 \
 	-D_LIBCPP_HAS_NO_THREADS \
 	-D_LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION
+
+ifeq ($(USE_DOCKER), 1)
+CFLAGS += -nodefaultlibs -I src/lib
+CPPFLAGS += \
+	-nodefaultlibs \
+	-I /usr/lib/llvm-13/include/c++/v1 \
+	-I /usr/lib/llvm-13/lib/clang/13.0.0/include \
+	-I src/lib \
+	-I src/libc++ \
+	-I src/re2
+else
+ifneq ($(ZIG_LIBCXX_INCLUDE),)
+# Using Zig - use its libc++ with custom minimal C library for C files
+CFLAGS += -nodefaultlibs -I src/lib
+# For C++, use Zig's complete libc/libc++ without custom headers interfering
+CPPFLAGS += \
+	-nodefaultlibs \
+	-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_NONE \
+	-D__WCHAR_H \
+	-D_LIBCPP_HAS_MUSL_LIBC \
+	-nostdinc++ \
+	-isystem $(ZIG_LIBCXX_INCLUDE) \
+	-isystem $(ZIG_INCLUDE) \
+	-include src/lib/opa_compat.h \
+	-I src/re2
+else
+# No Zig - use custom libc and libc++
+CFLAGS += -nodefaultlibs -I src/lib
+CPPFLAGS += \
+	-nodefaultlibs \
+	-I src/lib \
+	-I src/libc++ \
+	-I src/re2
+endif
+endif
 
 ifeq ($(DEBUG), 1)
 CFLAGS += -O1 -gdwarf -DDEBUG
@@ -98,13 +134,26 @@ $(shell mkdir -p $(WASM_OBJ_DIR)/tests)
 
 SRCS := $(sort $(wildcard src/*.c))
 CPP_SRCS := $(sort $(wildcard src/*.cc))
-LIB_SRCS := $(sort $(wildcard src/lib/*.c))
 LIB_MPDEC_SRCS := $(sort $(wildcard src/libmpdec/*.c))
-LIB_CPP_SRCS := $(sort $(wildcard src/libc++/*.cc))
 RE2_RE2_SRCS := $(sort $(wildcard src/re2/re2/*.cc))
 RE2_UTIL_SRCS := $(sort $(wildcard src/re2/util/*.cc))
 TEST_SRCS := $(sort $(wildcard tests/*.c))
 TEST_CPP_SRCS := $(sort $(wildcard tests/*.cc))
+
+# Include custom minimal libc for freestanding target
+LIB_SRCS := $(sort $(wildcard src/lib/*.c))
+
+# Only include custom libc++ when NOT using Zig (incompatible with Zig 0.15+)
+ifeq ($(USE_DOCKER), 1)
+LIB_CPP_SRCS := $(sort $(wildcard src/libc++/*.cc))
+else
+ifneq ($(ZIG_INCLUDE),)
+# Skip custom libc++ when using Zig - rely on Zig's libc++ completely
+LIB_CPP_SRCS :=
+else
+LIB_CPP_SRCS := $(sort $(wildcard src/libc++/*.cc))
+endif
+endif
 
 -include $(patsubst %.c,$(WASM_OBJ_DIR)/%.d,$(SRCS))
 -include $(patsubst %.cc,$(WASM_OBJ_DIR)/%.d,$(CPP_SRCS))
