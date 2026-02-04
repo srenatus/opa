@@ -1,4 +1,9 @@
+#include "wchar.h"
 #include "string.h"
+
+// Forward declarations for functions from string.h
+extern void *memcpy(void *dest, const void *src, size_t n);
+extern void *memmove(void *dest, const void *src, size_t n);
 
 wchar_t *wmemchr(const wchar_t *s, wchar_t c, size_t n)
 {

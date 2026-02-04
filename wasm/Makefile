@@ -39,6 +39,24 @@ CPPFLAGS += \
 	-D_LIBCPP_HAS_NO_THREADS \
 	-D_LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION
 
+# Special flags for re2: use wasm32-wasi for complete libc/libc++ support
+# This avoids header conflicts with custom headers while maintaining compatibility
+RE2_CPPFLAGS := \
+	-std=c++17 \
+	-MD \
+	-MP \
+	--target=wasm32-wasi \
+	-fno-exceptions \
+	-fno-rtti \
+	-D_LIBCPP_HAS_NO_THREADS \
+	-I src/re2
+
+ifeq ($(DEBUG), 1)
+RE2_CPPFLAGS += -O1 -gdwarf -DDEBUG
+else
+RE2_CPPFLAGS += -O3
+endif
+
 ifeq ($(USE_DOCKER), 1)
 CFLAGS += -nodefaultlibs -I src/lib
 CPPFLAGS += \
@@ -143,13 +161,14 @@ TEST_CPP_SRCS := $(sort $(wildcard tests/*.cc))
 # Include custom minimal libc for freestanding target
 LIB_SRCS := $(sort $(wildcard src/lib/*.c))
 
-# Only include custom libc++ when NOT using Zig (incompatible with Zig 0.15+)
+# Custom libc++ provides minimal C++ runtime (operator new/delete, guards, etc.)
+# When using Zig, only use the Zig-compatible minimal_zig.cc
 ifeq ($(USE_DOCKER), 1)
 LIB_CPP_SRCS := $(sort $(wildcard src/libc++/*.cc))
 else
 ifneq ($(ZIG_INCLUDE),)
-# Skip custom libc++ when using Zig - rely on Zig's libc++ completely
-LIB_CPP_SRCS :=
+# Use only the Zig-compatible minimal runtime
+LIB_CPP_SRCS := src/libc++/minimal_zig.cc
 else
 LIB_CPP_SRCS := $(sort $(wildcard src/libc++/*.cc))
 endif
@@ -179,7 +198,7 @@ $(OBJS): $(WASM_OBJ_DIR)/src/%.wasm: src/%.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(CPP_OBJS): $(WASM_OBJ_DIR)/src/%.wasm: src/%.cc
-	$(CXX) $(CPPFLAGS) -c -o $@ $<
+	$(CXX) $(RE2_CPPFLAGS) -c -o $@ $<
 
 $(LIB_OBJS): $(WASM_OBJ_DIR)/src/lib/%.wasm: src/lib/%.c
 	$(CC) $(CFLAGS) -c -o $@ $<
@@ -188,13 +207,13 @@ $(LIB_MPDEC_OBJS): $(WASM_OBJ_DIR)/src/libmpdec/%.wasm: src/libmpdec/%.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(LIB_CPP_OBJS): $(WASM_OBJ_DIR)/src/libc++/%.wasm: src/libc++/%.cc
-	$(CXX) $(CPPFLAGS) -c -o $@ $<
+	$(CXX) $(RE2_CPPFLAGS) -I src -c -o $@ $<
 
 $(RE2_RE2_OBJS): $(WASM_OBJ_DIR)/src/re2/re2/%.wasm: src/re2/re2/%.cc
-	$(CXX) $(CPPFLAGS) -c -o $@ $<
+	$(CXX) $(RE2_CPPFLAGS) -c -o $@ $<
 
 $(RE2_UTIL_OBJS): $(WASM_OBJ_DIR)/src/re2/util/%.wasm: src/re2/util/%.cc
-	$(CXX) $(CPPFLAGS) -c -o $@ $<
+	$(CXX) $(RE2_CPPFLAGS) -c -o $@ $<
 
 $(TEST_OBJS): $(WASM_OBJ_DIR)/tests/%.wasm: tests/%.c
 	$(CC) $(CFLAGS) -I src -c -o $@ $<
@@ -203,21 +222,58 @@ $(TEST_CPP_OBJS): $(WASM_OBJ_DIR)/tests/%.wasm: tests/%.cc
 	$(CXX) $(CPPFLAGS) -I src -c -o $@ $<
 
 $(WASM_OBJ_DIR)/opa.wasm: $(OBJS) $(CPP_OBJS) $(LIB_OBJS) $(LIB_MPDEC_OBJS) $(LIB_CPP_OBJS) $(RE2_RE2_OBJS) $(RE2_UTIL_OBJS)
+ifeq ($(USE_DOCKER), 1)
 	wasm-ld \
 			--allow-undefined-file=src/undefined.symbols \
 			--no-entry \
 			--export=__heap_base \
 			--stack-first \
 			-o $@ $^
+else
+ifneq ($(ZIG_INCLUDE),)
+	# Use zig wasm-ld for linking - allow undefined C++ stdlib symbols
+	# These will be provided by compiled libc++ objects or resolved at runtime
+	zig wasm-ld \
+			--allow-undefined-file=src/undefined.symbols \
+			--no-entry \
+			--export=__heap_base \
+			--stack-first \
+			-o $@ $^
+else
+	wasm-ld \
+			--allow-undefined-file=src/undefined.symbols \
+			--no-entry \
+			--export=__heap_base \
+			--stack-first \
+			-o $@ $^
+endif
+endif
 	@wasm2wat $(WASM_OBJ_DIR)/opa.wasm > $(WASM_OBJ_DIR)/opa.wast
 
 $(WASM_OBJ_DIR)/opa-test.wasm: $(OBJS) $(CPP_OBJS) $(LIB_OBJS) $(LIB_MPDEC_OBJS) $(LIB_CPP_OBJS) $(RE2_RE2_OBJS) $(RE2_UTIL_OBJS) $(TEST_OBJS) $(TEST_CPP_OBJS)
 	@cat src/undefined.symbols tests/undefined.symbols > _obj/undefined.symbols
+ifeq ($(USE_DOCKER), 1)
 	@wasm-ld \
 			--allow-undefined-file=_obj/undefined.symbols \
 			--no-entry \
 			--stack-first \
 			-o $@ $^
+else
+ifneq ($(ZIG_INCLUDE),)
+	# Use zig wasm-ld for linking to automatically include libc++ for wasm32-wasi objects
+	@zig wasm-ld \
+			--allow-undefined-file=_obj/undefined.symbols \
+			--no-entry \
+			--stack-first \
+			-o $@ $^
+else
+	@wasm-ld \
+			--allow-undefined-file=_obj/undefined.symbols \
+			--no-entry \
+			--stack-first \
+			-o $@ $^
+endif
+endif
 
 $(WASM_OBJ_DIR)/callgraph.csv: $(WASM_OBJ_DIR)/opa.wasm
 	# NOTE: wasm-opt will output "warning: no output file specified",
