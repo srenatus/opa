@@ -496,6 +496,7 @@ type Reader struct {
 	persist               bool
 	regoVersion           ast.RegoVersion
 	followSymlinks        bool
+	skipLocationMetadata  bool // when true, skips location metadata to save memory (default: false)
 }
 
 // NewReader is deprecated. Use NewCustomReader instead.
@@ -507,11 +508,12 @@ func NewReader(r io.Reader) *Reader {
 // specified DirectoryLoader.
 func NewCustomReader(loader DirectoryLoader) *Reader {
 	return &Reader{
-		loader:          loader,
-		metrics:         metrics.NoOp(),
-		files:           make(map[string]FileInfo),
-		sizeLimitBytes:  DefaultSizeLimitBytes + 1,
-		lazyLoadingMode: HasExtension(),
+		loader:               loader,
+		metrics:              metrics.NoOp(),
+		files:                make(map[string]FileInfo),
+		sizeLimitBytes:       DefaultSizeLimitBytes + 1,
+		lazyLoadingMode:      HasExtension(),
+		skipLocationMetadata: false, // default: include locations (don't skip)
 	}
 }
 
@@ -611,11 +613,19 @@ func (r *Reader) WithRegoVersion(version ast.RegoVersion) *Reader {
 	return r
 }
 
+// WithSkipLocationMetadata enables skipping location metadata in parsed AST nodes to save memory.
+// Default is false (locations are included). Set to true to skip locations and reduce memory usage.
+func (r *Reader) WithSkipLocationMetadata(skip bool) *Reader {
+	r.skipLocationMetadata = skip
+	return r
+}
+
 func (r *Reader) ParserOptions() ast.ParserOptions {
 	return ast.ParserOptions{
-		ProcessAnnotation: r.processAnnotations,
-		Capabilities:      r.capabilities,
-		RegoVersion:       r.regoVersion,
+		ProcessAnnotation:    r.processAnnotations,
+		Capabilities:         r.capabilities,
+		RegoVersion:          r.regoVersion,
+		SkipLocationMetadata: r.skipLocationMetadata,
 	}
 }
 

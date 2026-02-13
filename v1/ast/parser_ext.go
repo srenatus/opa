@@ -635,6 +635,9 @@ func ParseStatementsWithOpts(filename, input string, popts ParserOptions) ([]Sta
 		WithRegoVersion(popts.RegoVersion).
 		withUnreleasedKeywords(popts.unreleasedKeywords)
 
+	// Set SkipLocationMetadata option (default false = include locations)
+	parser.po.SkipLocationMetadata = popts.SkipLocationMetadata
+
 	stmts, comments, errs := parser.Parse()
 	if len(errs) > 0 {
 		return nil, nil, errs

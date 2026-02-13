@@ -550,10 +550,15 @@ func attachAnnotationsNodes(mod *Module) Errors {
 	// Find first non-annotation statement following each annotation and attach
 	// the annotation to that statement.
 	for _, a := range mod.Annotations {
+		// Skip if annotation or statement locations are missing
+		if a.Location == nil {
+			continue
+		}
 		for _, stmt := range mod.stmts {
 			_, ok := stmt.(*Annotations)
 			if !ok {
-				if stmt.Loc().Row > a.Location.Row {
+				stmtLoc := stmt.Loc()
+				if stmtLoc != nil && stmtLoc.Row > a.Location.Row {
 					a.node = stmt
 					break
 				}
