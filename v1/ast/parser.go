@@ -230,6 +230,14 @@ func (p *Parser) setNodeLocation(node Node, loc *Location) {
 	}
 }
 
+// setNodeLocationAlways unconditionally sets location on any Node.
+// Used for Package and Rule nodes which are needed for annotation processing during compilation.
+// Annotations are always processed during compilation (even if ProcessAnnotation=false during parsing),
+// so these locations must always be set.
+func (p *Parser) setNodeLocationAlways(node Node) {
+	node.SetLoc(p.s.Loc())
+}
+
 // setLocationText conditionally sets the Text field on a location.
 func (p *Parser) setLocationText(loc *Location, text []byte) {
 	if !p.po.SkipLocationMetadata && loc != nil {
@@ -393,17 +401,6 @@ func (p *Parser) presentParser() (*Parser, map[string]tokens.Token) {
 // comments as they are found. Any errors encountered while
 // parsing will be accumulated and returned as a list of Errors.
 func (p *Parser) Parse() ([]Statement, []*Comment, Errors) {
-
-	// Annotation processing requires location metadata to work correctly
-	if p.po.ProcessAnnotation && p.po.SkipLocationMetadata {
-		return nil, nil, Errors{
-			&Error{
-				Code:     ParseErr,
-				Message:  "cannot skip location metadata when annotation processing is enabled",
-				Location: nil,
-			},
-		}
-	}
 
 	if p.po.Capabilities == nil {
 		p.po.Capabilities = CapabilitiesForThisVersion(CapabilitiesRegoVersion(p.po.RegoVersion))
@@ -639,11 +636,19 @@ func parseAnnotations(comments []*Comment) (stmts []*Annotations, errs Errors) {
 }
 
 func isMetadataComment(c *Comment) bool {
-	return c.Location != nil && c.Location.Col == 1 && bytes.HasPrefix(bytes.TrimSpace(c.Text), metadataBytes)
+	if c.Location == nil {
+		// When locations are disabled, check only the text content
+		return bytes.HasPrefix(bytes.TrimSpace(c.Text), metadataBytes)
+	}
+	return c.Location.Col == 1 && bytes.HasPrefix(bytes.TrimSpace(c.Text), metadataBytes)
 }
 
 func blockBuster(curr, prev *Comment) bool { // or endOfBlock, but the name was too good to pass up
-	return curr.Location == nil || prev.Location == nil || curr.Location.Col != 1 || curr.Location.Row-1 != prev.Location.Row
+	if curr.Location == nil || prev.Location == nil {
+		// When locations are disabled, metadata blocks are separated by empty lines or non-metadata comments
+		return !isMetadataComment(curr)
+	}
+	return curr.Location.Col != 1 || curr.Location.Row-1 != prev.Location.Row
 }
 
 func (p *Parser) parsePackage() *Package {
@@ -652,7 +657,7 @@ func (p *Parser) parsePackage() *Package {
 	}
 
 	var pkg Package
-	p.setNodeLocation(&pkg, p.loc())
+	p.setNodeLocationAlways(&pkg) // Always get location for packages (needed for annotations)
 
 	p.scanWS()
 
@@ -863,7 +868,7 @@ func scanAheadRef(p *Parser) bool {
 func (p *Parser) parseRules() []*Rule {
 
 	var rule Rule
-	p.setNodeLocation(&rule, p.loc())
+	p.setNodeLocationAlways(&rule) // Always get location for rules (needed for annotations)
 
 	// This allows keywords in the first var term of the ref
 	_ = scanAheadRef(p)
@@ -1038,7 +1043,7 @@ func (p *Parser) parseRules() []*Rule {
 				next.Head.Args[i].Value = p.genwildcard()
 			}
 		}
-		setLocRecursive(next.Head, loc)
+		p.setLocRecursive(next.Head, loc)
 
 		rules = append(rules, &next)
 	}
@@ -1049,7 +1054,7 @@ func (p *Parser) parseRules() []*Rule {
 func (p *Parser) parseElse(head *Head) *Rule {
 
 	var rule Rule
-	p.setNodeLocation(&rule, p.loc())
+	p.setNodeLocationAlways(&rule) // Always get location for rules (needed for annotations)
 
 	rule.Head = head.Copy()
 	rule.Head.generatedValue = false
@@ -1061,7 +1066,9 @@ func (p *Parser) parseElse(head *Head) *Rule {
 	p.setNodeLocation(rule.Head, p.loc())
 
 	defer func() {
-		rule.Location.Text = p.s.Text(rule.Location.Offset, p.s.lastEnd)
+		if rule.Location != nil {
+			rule.Location.Text = p.s.Text(rule.Location.Offset, p.s.lastEnd)
+		}
 	}()
 
 	p.scan()
@@ -1077,7 +1084,9 @@ func (p *Parser) parseElse(head *Head) *Rule {
 		if rule.Head.Value == nil {
 			return nil
 		}
-		rule.Head.Location.Text = p.s.Text(rule.Head.Location.Offset, p.s.lastEnd)
+		if rule.Head.Location != nil {
+			rule.Head.Location.Text = p.s.Text(rule.Head.Location.Offset, p.s.lastEnd)
+		}
 	default:
 		p.illegal("expected else value term or rule body")
 		return nil
@@ -1089,7 +1098,7 @@ func (p *Parser) parseElse(head *Head) *Rule {
 	if !hasIf && !hasLBrace {
 		rule.Body = NewBody(NewExpr(BooleanTerm(true)))
 		rule.generatedBody = true
-		setLocRecursive(rule.Body, rule.Location)
+		p.setLocRecursive(rule.Body, rule.Location)
 		return &rule
 	}
 
@@ -1110,7 +1119,7 @@ func (p *Parser) parseElse(head *Head) *Rule {
 			return nil
 		}
 		rule.Body.Append(expr)
-		setLocRecursive(rule.Body, rule.Location)
+		p.setLocRecursive(rule.Body, rule.Location)
 	} else {
 		p.illegal("rule body expected")
 		return nil
@@ -1128,10 +1137,10 @@ func (p *Parser) parseHead(defaultRule bool) (*Head, bool) {
 	head := &Head{}
 	loc := p.loc() // Will be nil if skipping locations
 	defer func() {
-		if head != nil && loc != nil {
+		if head != nil {
 			p.setNodeLocation(head, loc)
-			if head.Location != nil {
-				p.setLocationText(head.Location, p.s.Text(head.Location.Offset, p.s.lastEnd))
+			if loc != nil {
+				p.setLocationText(loc, p.s.Text(loc.Offset, p.s.lastEnd))
 			}
 		}
 	}()
@@ -1401,7 +1410,9 @@ func (p *Parser) parseWith() []*With {
 			return nil
 		}
 
-		with.Location.Text = p.s.Text(with.Location.Offset, p.s.lastEnd)
+		if with.Location != nil {
+			with.Location.Text = p.s.Text(with.Location.Offset, p.s.lastEnd)
+		}
 
 		withs = append(withs, &with)
 
@@ -1823,7 +1834,9 @@ func (p *Parser) parseTerm() *Term {
 		p.scan()
 		if r := p.parseTermInfixCall(); r != nil {
 			if p.s.tok == tokens.RParen {
-				r.Location.Text = p.s.Text(offset, p.s.tokEnd)
+				if r.Location != nil {
+					r.Location.Text = p.s.Text(offset, p.s.tokEnd)
+				}
 				term = r
 			} else {
 				p.error(p.loc(), "non-terminated expression")
@@ -2093,7 +2106,9 @@ func (p *Parser) parseTemplateString(multiLine bool) *Term {
 	}
 
 	// When there are template-expressions, the initial location will only contain the text up to the first expression
-	p.setLocationText(loc, p.s.Text(loc.Offset, p.s.tokEnd))
+	if loc != nil {
+		p.setLocationText(loc, p.s.Text(loc.Offset, p.s.tokEnd))
+	}
 
 	return setLocation(p, TemplateStringTerm(multiLine, parts...), loc)
 }
@@ -2599,11 +2614,16 @@ func (p *Parser) error(loc *location.Location, reason string) {
 		msg = sb.String()
 	}
 
+	var details ErrorDetails
+	if loc != nil {
+		details = newParserErrorDetail(p.s.s.Bytes(), loc.Offset)
+	}
+
 	p.s.errors = append(p.s.errors, &Error{
 		Code:     ParseErr,
 		Message:  msg,
 		Location: loc,
-		Details:  newParserErrorDetail(p.s.s.Bytes(), loc.Offset),
+		Details:  details,
 	})
 	p.s.hints = nil
 }
@@ -2616,11 +2636,16 @@ func (p *Parser) errorf(loc *location.Location, f string, a ...any) {
 		writeHints(msg, p.s.hints)
 	}
 
+	var details ErrorDetails
+	if loc != nil {
+		details = newParserErrorDetail(p.s.s.Bytes(), loc.Offset)
+	}
+
 	p.s.errors = append(p.s.errors, &Error{
 		Code:     ParseErr,
 		Message:  msg.String(),
 		Location: loc,
-		Details:  newParserErrorDetail(p.s.s.Bytes(), loc.Offset),
+		Details:  details,
 	})
 	p.s.hints = nil
 }
@@ -2714,7 +2739,7 @@ func (p *Parser) doScan(skipws bool, scanOpts ...scanner.ScanOption) {
 			commentText = []byte(p.s.lit[1:])
 		}
 		comment := NewComment(commentText)
-		comment.SetLoc(p.s.Loc()) // Always set location on comments (needed for annotation processing)
+		comment.SetLoc(p.s.Loc()) // Always set location on comments (needed for annotation processing, even at runtime via rego.metadata.* builtins)
 		p.s.comments = append(p.s.comments, comment)
 	}
 }
@@ -2730,11 +2755,13 @@ func (p *Parser) restore(s *state) {
 	p.s = s
 }
 
-func setLocRecursive(x any, loc *location.Location) {
-	WalkNodes(x, func(n Node) bool {
-		n.SetLoc(loc) // Note: This is for generated nodes like else bodies, always set
-		return false
-	})
+func (p *Parser) setLocRecursive(x any, loc *location.Location) {
+	if !p.po.SkipLocationMetadata {
+		WalkNodes(x, func(n Node) bool {
+			n.SetLoc(loc)
+			return false
+		})
+	}
 }
 
 func (p *Parser) setLoc(term *Term, loc *location.Location, offset, end int) *Term {

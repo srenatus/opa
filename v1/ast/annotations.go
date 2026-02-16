@@ -550,10 +550,6 @@ func attachAnnotationsNodes(mod *Module) Errors {
 	// Find first non-annotation statement following each annotation and attach
 	// the annotation to that statement.
 	for _, a := range mod.Annotations {
-		// Skip if annotation or statement locations are missing
-		if a.Location == nil {
-			continue
-		}
 		for _, stmt := range mod.stmts {
 			_, ok := stmt.(*Annotations)
 			if !ok {
@@ -564,6 +560,10 @@ func attachAnnotationsNodes(mod *Module) Errors {
 				}
 			}
 		}
+	}
+
+	// Set scopes for annotations
+	for _, a := range mod.Annotations {
 
 		if a.Scope == "" {
 			switch a.node.(type) {
@@ -597,7 +597,6 @@ func attachAnnotationsNodes(mod *Module) Errors {
 }
 
 func validateAnnotationScopeAttachment(a *Annotations) *Error {
-
 	switch a.Scope {
 	case annotationScopeRule, annotationScopeDocument:
 		if _, ok := a.node.(*Rule); ok {
@@ -903,6 +902,9 @@ func (as *AnnotationSet) Chain(rule *Rule) AnnotationsRefSet {
 	if len(refs) > 1 {
 		// Sort by annotation location; chain must start with annotations declared closest to rule, then going outward
 		slices.SortStableFunc(refs, func(a, b *AnnotationsRef) int {
+			if a.Annotations.Location == nil || b.Annotations.Location == nil {
+				return 0
+			}
 			return -a.Annotations.Location.Compare(b.Annotations.Location)
 		})
 	}
@@ -1017,8 +1019,10 @@ func (ar *AnnotationsRef) Compare(other *AnnotationsRef) int {
 		return c
 	}
 
-	if c := ar.Annotations.Location.Compare(other.Annotations.Location); c != 0 {
-		return c
+	if ar.Annotations.Location != nil && other.Annotations.Location != nil {
+		if c := ar.Annotations.Location.Compare(other.Annotations.Location); c != 0 {
+			return c
+		}
 	}
 
 	return ar.Annotations.Compare(other.Annotations)
