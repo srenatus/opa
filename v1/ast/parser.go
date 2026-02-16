@@ -2738,8 +2738,36 @@ func (p *Parser) doScan(skipws bool, scanOpts ...scanner.ScanOption) {
 		if len(p.s.lit) > 1 {
 			commentText = []byte(p.s.lit[1:])
 		}
+
+		// When skipping locations (bundle loading), only store METADATA comment blocks.
+		// A METADATA block starts with # METADATA and includes all subsequent column-1 comments.
+		// Regular comments are not needed for annotation processing or evaluation.
+		keepComment := true
+		if p.po.SkipLocationMetadata {
+			// Only keep column-1 comments
+			if p.s.loc.Col != 1 {
+				keepComment = false
+			} else {
+				// Check if this starts a new METADATA block
+				isMetadataMarker := bytes.HasPrefix(bytes.TrimSpace(commentText), metadataBytes)
+
+				// If not a METADATA marker, only keep if we're continuing from the previous comment
+				// (i.e., previous comment exists and is from same file/scan)
+				if !isMetadataMarker && len(p.s.comments) == 0 {
+					keepComment = false // Not in a metadata block, skip
+				}
+			}
+		}
+
+		if !keepComment {
+			continue
+		}
+
 		comment := NewComment(commentText)
-		comment.SetLoc(p.s.Loc()) // Always set location on comments (needed for annotation processing, even at runtime via rego.metadata.* builtins)
+		// Always set locations on metadata comments, even when SkipLocationMetadata=true,
+		// because the annotation parser needs them to determine block boundaries.
+		// For non-metadata comments (when SkipLocationMetadata=false), also set locations.
+		comment.SetLoc(p.s.Loc())
 		p.s.comments = append(p.s.comments, comment)
 	}
 }
