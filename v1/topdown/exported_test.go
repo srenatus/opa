@@ -72,6 +72,18 @@ func TestRegoWithNDBCache(t *testing.T) {
 	}
 }
 
+func TestRegoNoLocation(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range cases.MustLoad("../test/cases/testdata/v1").Sorted().Cases {
+		t.Run("v1-noloc/"+tc.Note, func(t *testing.T) {
+			t.Parallel()
+
+			testRunNoLocation(t, tc, ast.RegoV1)
+		})
+	}
+}
+
 type opt func(*Query) *Query
 
 func testRun(t *testing.T, tc cases.TestCase, regoVersion ast.RegoVersion, opts ...opt) {
@@ -214,4 +226,100 @@ func testAssertErrorText(t *testing.T, wantText string, err error) {
 	if !strings.Contains(err.Error(), wantText) {
 		t.Fatalf("expected topdown error text %q but got: %q", wantText, err.Error())
 	}
+}
+
+func testRunNoLocation(t *testing.T, tc cases.TestCase, regoVersion ast.RegoVersion, opts ...opt) {
+	t.Helper()
+	for k, v := range tc.Env {
+		t.Setenv(k, v)
+	}
+
+	ctx := t.Context()
+
+	modules := map[string]string{}
+	for i, module := range tc.Modules {
+		modules[fmt.Sprintf("test-%d.rego", i)] = module
+	}
+
+	compiler := ast.MustCompileModulesWithOpts(modules, ast.CompileOpts{
+		ParserOptions: ast.ParserOptions{
+			RegoVersion:          regoVersion,
+			SkipLocationMetadata: true,
+		},
+	})
+	query, err := compiler.QueryCompiler().Compile(ast.MustParseBody(tc.Query))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var store storage.Store
+
+	if tc.Data != nil {
+		store = inmem.NewFromObject(*tc.Data)
+	} else {
+		store = inmem.New()
+	}
+
+	txn := storage.NewTransactionOrDie(ctx, store)
+
+	var input *ast.Term
+
+	if tc.InputTerm != nil {
+		input = ast.MustParseTerm(*tc.InputTerm)
+	} else if tc.Input != nil {
+		input = ast.NewTerm(ast.MustInterfaceToValue(*tc.Input))
+	}
+
+	cncl := NewCancel()
+	buf := NewBufferTracer()
+	q := NewQuery(query).
+		WithCompiler(compiler).
+		WithStore(store).
+		WithTransaction(txn).
+		WithInput(input).
+		WithStrictBuiltinErrors(tc.StrictError).
+		WithTracer(buf).
+		WithCancel(cncl)
+
+	for _, o := range opts {
+		q = o(q)
+	}
+
+	rs, err := q.Run(ctx)
+
+	if tc.WantError != nil {
+		// Strip location prefix from expected error text since we're running without locations
+		wantErr := stripLocationPrefix(*tc.WantError)
+		testAssertErrorText(t, wantErr, err)
+	}
+
+	if tc.WantErrorCode != nil {
+		testAssertErrorCode(t, *tc.WantErrorCode, err)
+	}
+
+	if err != nil && tc.WantErrorCode == nil && tc.WantError == nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if tc.WantResult != nil {
+		testAssertResultSet(t, *tc.WantResult, rs, tc.SortBindings, tc.IgnoreGeneratedVars)
+	}
+
+	if tc.WantResult == nil && tc.WantErrorCode == nil && tc.WantError == nil {
+		t.Fatal("expected one of: 'want_result', 'want_error_code', or 'want_error'")
+	}
+
+	if testing.Verbose() {
+		PrettyTrace(os.Stderr, *buf)
+	}
+}
+
+// stripLocationPrefix removes file location prefixes from error messages
+// e.g., "test-0.rego:4: errortext" becomes "errortext"
+func stripLocationPrefix(errText string) string {
+	prefix, msg, ok := strings.Cut(errText, ": ")
+	if ok && strings.Contains(prefix, ".rego:") {
+		return msg
+	}
+	return errText
 }

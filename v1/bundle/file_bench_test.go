@@ -82,6 +82,36 @@ func BenchmarkDirectoryLoader(b *testing.B) {
 	}
 }
 
+func BenchmarkDirectoryLoaderLargePolicy(b *testing.B) {
+	for _, n := range []int{1000, 2500, 5000, 7500} {
+		policyFiles := benchTestGenerateLargePolicyBundle(n)
+
+		test.WithTempFS(policyFiles, func(rootDir string) {
+			b.ResetTimer()
+			b.Run(strconv.Itoa(n), func(b *testing.B) {
+				for b.Loop() {
+					benchTestLoader(b, NewDirectoryLoader(rootDir))
+				}
+			})
+		})
+	}
+}
+
+func BenchmarkDirectoryLoaderLargePolicyNoLocation(b *testing.B) {
+	for _, n := range []int{1000, 2500, 5000, 7500} {
+		policyFiles := benchTestGenerateLargePolicyBundle(n)
+
+		test.WithTempFS(policyFiles, func(rootDir string) {
+			b.ResetTimer()
+			b.Run(strconv.Itoa(n), func(b *testing.B) {
+				for b.Loop() {
+					benchTestLoaderNoLocation(b, NewDirectoryLoader(rootDir))
+				}
+			})
+		})
+	}
+}
+
 // Creates a flat JSON object of configurable size.
 func benchTestGetFlatDataJSON(numKeys int) string {
 	largeFile := make(map[string]string, numKeys)
@@ -113,8 +143,6 @@ func benchTestCreateTarballFile(b *testing.B, root string, filesToWrite map[stri
 	f.Close()
 }
 
-// We specifically invoke the loader through the bundle reader to mimic
-// real-world usage.
 func benchTestLoader(b *testing.B, loader DirectoryLoader) {
 	b.Helper()
 
@@ -127,4 +155,45 @@ func benchTestLoader(b *testing.B, loader DirectoryLoader) {
 	if len(bundle.Raw) == 0 {
 		b.Fatal("bundle.Raw is unexpectedly empty")
 	}
+}
+
+func benchTestLoaderNoLocation(b *testing.B, loader DirectoryLoader) {
+	b.Helper()
+
+	br := NewCustomReader(loader).WithLazyLoadingMode(true).WithSkipLocationMetadata(true)
+	bundle, err := br.Read()
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	if len(bundle.Raw) == 0 {
+		b.Fatal("bundle.Raw is unexpectedly empty")
+	}
+}
+
+func benchTestGenerateLargePolicyBundle(numRules int) map[string]string {
+	var policy strings.Builder
+	policy.Grow((140 * numRules) + 100)
+
+	policy.WriteString("package example.large.partial.rules.policy\n\n")
+	for i := range numRules {
+		policy.WriteString(benchTestGeneratePolicyRule(i))
+		policy.WriteString("\n\n")
+	}
+	policy.WriteString("number_denies = x if {\n\tx := count(deny)\n}")
+
+	return map[string]string{
+		"/policy.rego": policy.String(),
+	}
+}
+
+func benchTestGeneratePolicyRule(n int) string {
+	return strings.Join([]string{
+		"deny contains [resource, errormsg] if {",
+		"\tresource := \"example." + strconv.Itoa(n) + "\"",
+		"\ti := " + strconv.Itoa(n),
+		"\ti % 2 != 0",
+		"\terrormsg := \"denied because " + strconv.Itoa(n) + " is an odd number.\"",
+		"}",
+	}, "\n")
 }
