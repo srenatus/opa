@@ -130,6 +130,10 @@ func (s *state) Loc() *location.Location {
 	return &cpy
 }
 
+func locNil() *location.Location {
+	return nil
+}
+
 func (s *state) Text(offset, end int) []byte {
 	bs := s.s.Bytes()
 	if offset >= 0 && offset < len(bs) {
@@ -148,6 +152,7 @@ type Parser struct {
 	cache             parsedTermCache
 	recursionDepth    int
 	maxRecursionDepth int
+	loc               func() *Location // Function pointer for location creation, set once to avoid branches
 }
 
 type parsedTermCacheItem struct {
@@ -203,32 +208,19 @@ func NewParser() *Parser {
 		po:                ParserOptions{}, // default: include locations (SkipLocationMetadata defaults to false)
 		maxRecursionDepth: DefaultMaxParsingRecursionDepth,
 	}
+	// Set location function to capture p (not p.s), so it always uses current state
+	p.loc = func() *Location { return p.s.Loc() }
 	return p
 }
 
-// loc conditionally creates a Location object based on parser options.
-// This avoids allocating Location objects when they won't be used.
-func (p *Parser) loc() *Location {
+// setLocation conditionally sets location on `e` of type `T` based on parser options.
+func setLocation[T interface {
+	SetLocation(*Location) T
+}](p *Parser, e T, loc *Location) T {
 	if p.po.SkipLocationMetadata {
-		return nil
+		return e
 	}
-	return p.s.Loc()
-}
-
-// setTermLocation conditionally sets location on a Term based on parser options.
-func (p *Parser) setTermLocation(term *Term, loc *Location) *Term {
-	if !p.po.SkipLocationMetadata {
-		return term.SetLocation(loc)
-	}
-	return term
-}
-
-// setExprLocation conditionally sets location on an Expr based on parser options.
-func (p *Parser) setExprLocation(expr *Expr, loc *Location) *Expr {
-	if !p.po.SkipLocationMetadata {
-		return expr.SetLocation(loc)
-	}
-	return expr
+	return e.SetLocation(loc)
 }
 
 // setNodeLocation conditionally sets location on any Node based on parser options.
@@ -364,6 +356,12 @@ func (p *Parser) futureParser() *Parser {
 	q.s = p.save()
 	q.s.s = p.s.s.WithKeywords(allFutureKeywords)
 	q.cache = parsedTermCache{}
+	// Fix loc to capture q instead of p
+	if p.po.SkipLocationMetadata {
+		q.loc = locNil
+	} else {
+		q.loc = func() *Location { return q.s.Loc() }
+	}
 	return &q
 }
 
@@ -382,6 +380,12 @@ func (p *Parser) presentParser() (*Parser, map[string]tokens.Token) {
 	q.s = p.save()
 	q.s.s, cpy = p.s.s.WithoutKeywords(allFutureKeywords)
 	q.cache = parsedTermCache{}
+	// Fix loc to capture q instead of p
+	if p.po.SkipLocationMetadata {
+		q.loc = locNil
+	} else {
+		q.loc = func() *Location { return q.s.Loc() }
+	}
 	return &q, cpy
 }
 
@@ -469,6 +473,14 @@ func (p *Parser) Parse() ([]Statement, []*Comment, Errors) {
 			// rego-v1 includes all v0 future keywords in the default language definition
 			maps.Copy(allowedFutureKeywords, futureKeywordsV0)
 		}
+	}
+
+	// Set location function pointer based on SkipLocationMetadata to avoid repeated branches
+	// Capture p (not p.s) so the closure always uses the current state
+	if p.po.SkipLocationMetadata {
+		p.loc = locNil
+	} else {
+		p.loc = func() *Location { return p.s.Loc() }
 	}
 
 	var err error
@@ -665,18 +677,18 @@ func (p *Parser) parsePackage() *Package {
 		switch v := term.Value.(type) {
 		case Var:
 			pkg.Path = Ref{
-				p.setTermLocation(DefaultRootDocument.Copy(), term.Location),
-				p.setTermLocation(StringTerm(string(v)), term.Location),
+				setLocation(p, DefaultRootDocument.Copy(), term.Location),
+				setLocation(p, StringTerm(string(v)), term.Location),
 			}
 		case Ref:
 			pkg.Path = make(Ref, len(v)+1)
-			pkg.Path[0] = p.setTermLocation(DefaultRootDocument.Copy(), v[0].Location)
+			pkg.Path[0] = setLocation(p, DefaultRootDocument.Copy(), v[0].Location)
 			first, ok := v[0].Value.(Var)
 			if !ok {
 				p.errorf(v[0].Location, "unexpected %v token: expecting var", ValueName(v[0].Value))
 				return nil
 			}
-			pkg.Path[1] = p.setTermLocation(StringTerm(string(first)), v[0].Location)
+			pkg.Path[1] = setLocation(p, StringTerm(string(first)), v[0].Location)
 			for i := 2; i < len(pkg.Path); i++ {
 				switch v[i-1].Value.(type) {
 				case String:
@@ -694,7 +706,7 @@ func (p *Parser) parsePackage() *Package {
 
 	if pkg.Path == nil {
 		if len(p.s.errors) == 0 {
-			p.error(p.s.Loc(), "expected path")
+			p.error(p.loc(), "expected path")
 		}
 		return nil
 	}
@@ -732,7 +744,7 @@ func (p *Parser) parseImport() *Import {
 	if term != nil {
 		switch v := term.Value.(type) {
 		case Var:
-			imp.Path = p.setTermLocation(RefTerm(term), term.Location)
+			imp.Path = setLocation(p, RefTerm(term), term.Location)
 		case Ref:
 			for i := 1; i < len(v); i++ {
 				if _, ok := v[i].Value.(String); !ok {
@@ -748,7 +760,7 @@ func (p *Parser) parseImport() *Import {
 	p.s.s = q.s.s.WithKeywords(prev)
 
 	if imp.Path == nil {
-		p.error(p.s.Loc(), "expected path")
+		p.error(p.loc(), "expected path")
 		return nil
 	}
 
@@ -886,7 +898,7 @@ func (p *Parser) parseRules() []*Rule {
 			}
 		}
 
-		rule.Body = NewBody(p.setExprLocation(NewExpr(p.setTermLocation(BooleanTerm(true), rule.Location)), rule.Location))
+		rule.Body = NewBody(setLocation(p, NewExpr(setLocation(p, BooleanTerm(true), rule.Location)), rule.Location))
 		return []*Rule{&rule}
 	}
 
@@ -903,7 +915,7 @@ func (p *Parser) parseRules() []*Rule {
 
 		if rule.Head.Value == nil {
 			rule.Head.generatedValue = true
-			rule.Head.Value = p.setTermLocation(BooleanTerm(true), rule.Head.Location)
+			rule.Head.Value = setLocation(p, BooleanTerm(true), rule.Head.Location)
 		} else {
 			// p[x] = y if  becomes a single-value rule p[x] with value y, but needs name for compat
 			v, ok := rule.Head.Ref()[0].Value.(Var)
@@ -962,7 +974,7 @@ func (p *Parser) parseRules() []*Rule {
 		p.scan()
 
 	case usesContains:
-		rule.Body = NewBody(p.setExprLocation(NewExpr(p.setTermLocation(BooleanTerm(true), rule.Location)), rule.Location))
+		rule.Body = NewBody(setLocation(p, NewExpr(setLocation(p, BooleanTerm(true), rule.Location)), rule.Location))
 		rule.generatedBody = true
 		rule.Location = rule.Head.Location
 
@@ -976,11 +988,11 @@ func (p *Parser) parseRules() []*Rule {
 		// This might just be a refhead rule with a leading 'else' term.
 		if !scanAheadRef(p) {
 			if r := rule.Head.Ref(); len(r) > 1 && !r.IsGround() {
-				p.error(p.s.Loc(), "else keyword cannot be used on rules with variables in head")
+				p.error(p.loc(), "else keyword cannot be used on rules with variables in head")
 				return nil
 			}
 			if rule.Head.Key != nil {
-				p.error(p.s.Loc(), "else keyword cannot be used on multi-value rules")
+				p.error(p.loc(), "else keyword cannot be used on multi-value rules")
 				return nil
 			}
 
@@ -990,18 +1002,20 @@ func (p *Parser) parseRules() []*Rule {
 		}
 	}
 
-	rule.Location.Text = p.s.Text(rule.Location.Offset, p.s.lastEnd)
+	if rule.Location != nil {
+		rule.Location.Text = p.s.Text(rule.Location.Offset, p.s.lastEnd)
+	}
 
 	rules := []*Rule{&rule}
 
 	for p.s.tok == tokens.LBrace {
 
 		if rule.Else != nil {
-			p.error(p.s.Loc(), "expected else keyword")
+			p.error(p.loc(), "expected else keyword")
 			return nil
 		}
 
-		loc := p.s.Loc()
+		loc := p.loc()
 
 		p.scan()
 		var next Rule
@@ -1202,7 +1216,7 @@ func (p *Parser) parseHead(defaultRule bool) (*Head, bool) {
 	if head.Value == nil && head.Key == nil {
 		if len(head.Ref()) != 2 || len(head.Args) > 0 {
 			head.generatedValue = true
-			head.Value = p.setTermLocation(BooleanTerm(true), head.Location)
+			head.Value = setLocation(p, BooleanTerm(true), head.Location)
 		}
 	}
 	return head, false
@@ -1220,7 +1234,7 @@ func (p *Parser) parseQuery(requireSemi bool, end tokens.Token) Body {
 	body := Body{}
 
 	if p.s.tok == end {
-		p.error(p.s.Loc(), "found empty body")
+		p.error(p.loc(), "found empty body")
 		return nil
 	}
 
@@ -1254,7 +1268,7 @@ func (p *Parser) parseQuery(requireSemi bool, end tokens.Token) Body {
 func (p *Parser) parseLiteral() (expr *Expr) {
 
 	offset := p.s.loc.Offset
-	loc := p.s.Loc()
+	loc := p.loc()
 
 	defer func() {
 		if expr != nil {
@@ -1355,7 +1369,7 @@ func (p *Parser) parseWith() []*With {
 	withs := []*With{}
 
 	for {
-		with := With{Location: p.s.Loc()}
+		with := With{Location: p.loc()}
 
 		p.scan()
 
@@ -1427,7 +1441,7 @@ func (p *Parser) parseSome() *Expr {
 			}
 
 			decl.Symbols = []*Term{term}
-			expr := p.setExprLocation(NewExpr(decl), decl.Location)
+			expr := setLocation(p, NewExpr(decl), decl.Location)
 			if p.s.tok == tokens.With {
 				if expr.With = p.parseWith(); expr.With == nil {
 					return nil
@@ -1476,7 +1490,7 @@ func (p *Parser) parseSome() *Expr {
 		}
 	}
 
-	return p.setExprLocation(NewExpr(decl), decl.Location)
+	return setLocation(p, NewExpr(decl), decl.Location)
 }
 
 func (p *Parser) parseEvery() *Expr {
@@ -1531,7 +1545,7 @@ func (p *Parser) parseEvery() *Expr {
 		}
 		p.scan()
 		qb.Body = body
-		expr := p.setExprLocation(NewExpr(qb), qb.Location)
+		expr := setLocation(p, NewExpr(qb), qb.Location)
 
 		if p.s.tok == tokens.With {
 			if expr.With = p.parseWith(); expr.With == nil {
@@ -1785,11 +1799,11 @@ func (p *Parser) parseTerm() *Term {
 	var term *Term
 	switch p.s.tok {
 	case tokens.Null:
-		term = p.setTermLocation(NullTerm(), p.loc())
+		term = setLocation(p, NullTerm(), p.loc())
 	case tokens.True:
-		term = p.setTermLocation(BooleanTerm(true), p.loc())
+		term = setLocation(p, BooleanTerm(true), p.loc())
 	case tokens.False:
-		term = p.setTermLocation(BooleanTerm(false), p.loc())
+		term = setLocation(p, BooleanTerm(false), p.loc())
 	case tokens.Sub, tokens.Dot, tokens.Number:
 		term = p.parseNumber()
 	case tokens.String:
@@ -1812,7 +1826,7 @@ func (p *Parser) parseTerm() *Term {
 				r.Location.Text = p.s.Text(offset, p.s.tokEnd)
 				term = r
 			} else {
-				p.error(p.s.Loc(), "non-terminated expression")
+				p.error(p.loc(), "non-terminated expression")
 			}
 		}
 	default:
@@ -1839,7 +1853,7 @@ func (p *Parser) parseTermFinish(head *Term, skipws bool) *Term {
 		fallthrough
 	default:
 		if _, ok := head.Value.(Var); ok && RootDocumentNames.Contains(head) {
-			return p.setTermLocation(RefTerm(head), head.Location)
+			return setLocation(p, RefTerm(head), head.Location)
 		}
 		return head
 	}
@@ -1869,14 +1883,14 @@ func (p *Parser) parseHeadFinish(head *Term, skipws bool) *Term {
 	}
 
 	if _, ok := head.Value.(Var); ok && RootDocumentNames.Contains(head) {
-		return p.setTermLocation(RefTerm(head), head.Location)
+		return setLocation(p, RefTerm(head), head.Location)
 	}
 	return head
 }
 
 func (p *Parser) parseNumber() *Term {
 	var prefix string
-	loc := p.s.Loc()
+	loc := p.loc()
 
 	// Handle negative sign
 	if p.s.tok == tokens.Sub {
@@ -1933,32 +1947,32 @@ func (p *Parser) parseNumber() *Term {
 	// The limit is arbitrary.
 	exp := f.MantExp(nil)
 	if exp > 1e5 || exp < -1e5 || f.IsInf() { // +/- inf, exp is 0
-		p.error(p.s.Loc(), "number too big")
+		p.error(p.loc(), "number too big")
 		return nil
 	}
 
 	// Note: Use the original string, do *not* round trip from
 	// the big.Float as it can cause precision loss.
-	return p.setTermLocation(NumberTerm(json.Number(s)), loc)
+	return setLocation(p, NumberTerm(json.Number(s)), loc)
 }
 
 func (p *Parser) parseString() *Term {
 	if p.s.lit[0] == '"' {
 		if p.s.lit == "\"\"" {
-			return p.setTermLocation(NewTerm(InternedEmptyStringValue), p.loc())
+			return setLocation(p, NewTerm(InternedEmptyStringValue), p.loc())
 		}
 
 		inner := p.s.lit[1 : len(p.s.lit)-1]
 		if !strings.ContainsRune(inner, '\\') { // nothing to un-escape
-			return p.setTermLocation(StringTerm(inner), p.loc())
+			return setLocation(p, StringTerm(inner), p.loc())
 		}
 
 		var s string
 		if err := json.Unmarshal([]byte(p.s.lit), &s); err != nil {
-			p.errorf(p.s.Loc(), "illegal string literal: %s", p.s.lit)
+			p.errorf(p.loc(), "illegal string literal: %s", p.s.lit)
 			return nil
 		}
-		return p.setTermLocation(StringTerm(s), p.loc())
+		return setLocation(p, StringTerm(s), p.loc())
 	}
 	return p.parseRawString()
 }
@@ -1967,7 +1981,7 @@ func (p *Parser) parseRawString() *Term {
 	if len(p.s.lit) < 2 {
 		return nil
 	}
-	return p.setTermLocation(StringTerm(p.s.lit[1:len(p.s.lit)-1]), p.loc())
+	return setLocation(p, StringTerm(p.s.lit[1:len(p.s.lit)-1]), p.loc())
 }
 
 func templateStringPartToStringLiteral(tok tokens.Token, lit string) (string, error) {
@@ -1995,7 +2009,7 @@ func templateStringPartToStringLiteral(tok tokens.Token, lit string) (string, er
 }
 
 func (p *Parser) parseTemplateString(multiLine bool) *Term {
-	loc := p.s.Loc()
+	loc := p.loc()
 
 	if !p.po.Capabilities.ContainsFeature(FeatureTemplateStrings) {
 		p.errorf(loc, "template strings are not supported by current capabilities")
@@ -2007,13 +2021,13 @@ func (p *Parser) parseTemplateString(multiLine bool) *Term {
 	for {
 		s, err := templateStringPartToStringLiteral(p.s.tok, p.s.lit)
 		if err != nil {
-			p.error(p.s.Loc(), err.Error())
+			p.error(p.loc(), err.Error())
 			return nil
 		}
 
 		// Don't add empty strings
 		if len(s) > 0 {
-			parts = append(parts, p.setTermLocation(StringTerm(s), p.loc()))
+			parts = append(parts, setLocation(p, StringTerm(s), p.loc()))
 		}
 
 		if p.s.tok == tokens.TemplateStringEnd || p.s.tok == tokens.RawTemplateStringEnd {
@@ -2026,7 +2040,7 @@ func (p *Parser) parseTemplateString(multiLine bool) *Term {
 
 		expr := p.parseLiteral()
 		if expr == nil {
-			p.error(p.s.Loc(), "invalid template-string expression")
+			p.error(p.loc(), "invalid template-string expression")
 			return nil
 		}
 
@@ -2071,7 +2085,7 @@ func (p *Parser) parseTemplateString(multiLine bool) *Term {
 		}
 
 		if p.s.tok != tokens.RBrace {
-			p.errorf(p.s.Loc(), "expected %s to end template string expression", tokens.RBrace)
+			p.errorf(p.loc(), "expected %s to end template string expression", tokens.RBrace)
 			return nil
 		}
 
@@ -2081,7 +2095,7 @@ func (p *Parser) parseTemplateString(multiLine bool) *Term {
 	// When there are template-expressions, the initial location will only contain the text up to the first expression
 	p.setLocationText(loc, p.s.Text(loc.Offset, p.s.tokEnd))
 
-	return p.setTermLocation(TemplateStringTerm(multiLine, parts...), loc)
+	return setLocation(p, TemplateStringTerm(multiLine, parts...), loc)
 }
 
 func (p *Parser) parseCall(operator *Term, offset int) (term *Term) {
@@ -2147,7 +2161,7 @@ func (p *Parser) parseRef(head *Term, offset int) (term *Term) {
 				p.illegal("expected %v", tokens.Ident)
 				return nil
 			}
-			ref = append(ref, p.setTermLocation(StringTerm(p.s.lit), p.loc()))
+			ref = append(ref, setLocation(p, StringTerm(p.s.lit), p.loc()))
 			p.scanWS()
 		case tokens.LParen:
 			term = p.parseCall(p.setLoc(RefTerm(ref...), loc, offset, p.s.loc.Offset), offset)
@@ -2192,7 +2206,7 @@ func (p *Parser) parseArray() (term *Term) {
 	}
 	defer p.leave()
 
-	loc := p.s.Loc()
+	loc := p.loc()
 	offset := p.s.loc.Offset
 
 	defer func() {
@@ -2266,7 +2280,7 @@ func (p *Parser) parseSetOrObject() (term *Term) {
 	}
 	defer p.leave()
 
-	loc := p.s.Loc()
+	loc := p.loc()
 	offset := p.s.loc.Offset
 
 	defer func() {
@@ -2513,8 +2527,8 @@ func (p *Parser) parseTermPairList(end tokens.Token, r [][2]*Term) [][2]*Term {
 
 func (p *Parser) parseTermOp(values ...tokens.Token) *Term {
 	if slices.Contains(values, p.s.tok) {
-		loc := p.s.Loc()
-		r := p.setTermLocation(RefTerm(p.setTermLocation(VarTerm(p.s.tok.String()), loc)), loc)
+		loc := p.loc()
+		r := setLocation(p, RefTerm(setLocation(p, VarTerm(p.s.tok.String()), loc)), loc)
 		p.scan()
 		return r
 	}
@@ -2524,7 +2538,7 @@ func (p *Parser) parseTermOp(values ...tokens.Token) *Term {
 func (p *Parser) parseTermOpName(ref Ref, values ...tokens.Token) *Term {
 	if slices.Contains(values, p.s.tok) {
 		cp := ref.Copy()
-		loc := p.s.Loc()
+		loc := p.loc()
 		for _, r := range cp {
 			p.setNodeLocation(r, loc)
 		}
@@ -2539,10 +2553,10 @@ func (p *Parser) parseTermOpName(ref Ref, values ...tokens.Token) *Term {
 func (p *Parser) parseVar() *Term {
 	if p.s.lit == WildcardString {
 		// Update wildcard values with unique identifiers
-		return p.setTermLocation(NewTerm(p.genwildcard()), p.loc())
+		return setLocation(p, NewTerm(p.genwildcard()), p.loc())
 	}
 
-	return p.setTermLocation(VarTerm(p.s.lit), p.loc())
+	return setLocation(p, VarTerm(p.s.lit), p.loc())
 }
 
 func (p *Parser) genwildcard() Value {
@@ -2617,7 +2631,7 @@ func (p *Parser) hint(s string) {
 
 func (p *Parser) illegal(note string, a ...any) {
 	if p.s.tok == tokens.Illegal {
-		p.errorf(p.s.Loc(), "illegal token")
+		p.errorf(p.loc(), "illegal token")
 		return
 	}
 
@@ -2629,9 +2643,9 @@ func (p *Parser) illegal(note string, a ...any) {
 	}
 
 	if len(note) > 0 {
-		p.errorf(p.s.Loc(), "unexpected %s %s: %s", tok, tokType, fmt.Sprintf(note, a...))
+		p.errorf(p.loc(), "unexpected %s %s: %s", tok, tokType, fmt.Sprintf(note, a...))
 	} else {
-		p.errorf(p.s.Loc(), "unexpected %s %s", tok, tokType)
+		p.errorf(p.loc(), "unexpected %s %s", tok, tokType)
 	}
 }
 
@@ -2672,7 +2686,7 @@ func (p *Parser) doScan(skipws bool, scanOpts ...scanner.ScanOption) {
 		p.s.loc.Tabs = pos.Tabs
 
 		for _, err := range errs {
-			p.error(p.s.Loc(), err.Message)
+			p.error(p.loc(), err.Message)
 		}
 
 		if len(errs) > 0 {
@@ -3271,7 +3285,7 @@ func init() {
 func (p *Parser) enter() bool {
 	p.recursionDepth++
 	if p.maxRecursionDepth > 0 && p.recursionDepth > p.maxRecursionDepth {
-		p.error(p.s.Loc(), ErrMaxParsingRecursionDepthExceeded.Error())
+		p.error(p.loc(), ErrMaxParsingRecursionDepthExceeded.Error())
 		p.recursionDepth--
 		return false
 	}
