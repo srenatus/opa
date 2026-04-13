@@ -15,6 +15,12 @@ void abort(void)
     }
 }
 
+void exit(int status)
+{
+    (void)status;
+    abort();
+}
+
 void opa_abort(const char *msg)
 {
     opa_abort_(msg);

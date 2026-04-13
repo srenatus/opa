@@ -22955,7 +22955,7 @@
       "name": "output",
       "type": "number"
     },
-    "wasm": false
+    "wasm": true
   },
   "strings.render_template": {
     "args": [

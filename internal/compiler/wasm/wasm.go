@@ -150,6 +150,7 @@ var builtinsFunctions = map[string]string{
 	ast.Lower.Name:                      "opa_strings_lower",
 	ast.Upper.Name:                      "opa_strings_upper",
 	ast.Contains.Name:                   "opa_strings_contains",
+	ast.StringCount.Name:                "strings_StringsCount",
 	ast.StartsWith.Name:                 "opa_strings_startswith",
 	ast.EndsWith.Name:                   "opa_strings_endswith",
 	ast.StringReverse.Name:              "opa_strings_reverse",

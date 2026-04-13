@@ -26,6 +26,7 @@ CFLAGS += \
 	--target=wasm32-unknown-unknown-wasm \
 	-I src/lib \
 	-I src/libmpdec \
+	-I src/go/generated \
 	-DCONFIG_32 \
 	-DANSI \
 	-mno-bulk-memory \
@@ -128,6 +129,7 @@ SRCS := $(sort $(wildcard src/*.c))
 CPP_SRCS := $(sort $(wildcard src/*.cc))
 LIB_SRCS := $(sort $(wildcard src/lib/*.c))
 LIB_MPDEC_SRCS := $(sort $(wildcard src/libmpdec/*.c))
+SO_SRCS := $(sort $(shell find src/go/generated -name '*.c'))
 LIB_CPP_SRCS := $(sort $(wildcard src/libc++/*.cc))
 RE2_RE2_SRCS := $(sort $(wildcard src/re2/re2/*.cc))
 RE2_UTIL_SRCS := $(sort $(wildcard src/re2/util/*.cc))
@@ -138,6 +140,7 @@ TEST_CPP_SRCS := $(sort $(wildcard tests/*.cc))
 -include $(patsubst %.cc,$(WASM_OBJ_DIR)/%.d,$(CPP_SRCS))
 -include $(patsubst %.c,$(WASM_OBJ_DIR)/%.d,$(LIB_SRCS))
 -include $(patsubst %.c,$(WASM_OBJ_DIR)/%.d,$(LIB_MPDEC_SRCS))
+-include $(patsubst %.c,$(WASM_OBJ_DIR)/%.d,$(SO_SRCS))
 -include $(patsubst %.cc,$(WASM_OBJ_DIR)/%.d,$(LIB_CPP_SRCS))
 -include $(patsubst %.cc,$(WASM_OBJ_DIR)/%.d,$(RE2_RE2_SRCS))
 -include $(patsubst %.cc,$(WASM_OBJ_DIR)/%.d,$(RE2_UTIL_SRCS))
@@ -148,6 +151,7 @@ OBJS := $(patsubst %.c, $(WASM_OBJ_DIR)/%.wasm, $(SRCS))
 CPP_OBJS := $(patsubst %.cc, $(WASM_OBJ_DIR)/%.wasm, $(CPP_SRCS))
 LIB_OBJS := $(patsubst %.c, $(WASM_OBJ_DIR)/%.wasm, $(LIB_SRCS))
 LIB_MPDEC_OBJS := $(patsubst %.c, $(WASM_OBJ_DIR)/%.wasm, $(LIB_MPDEC_SRCS))
+SO_OBJS := $(patsubst %.c, $(WASM_OBJ_DIR)/%.wasm, $(SO_SRCS))
 LIB_CPP_OBJS := $(patsubst %.cc, $(WASM_OBJ_DIR)/%.wasm, $(LIB_CPP_SRCS))
 RE2_RE2_OBJS := $(patsubst %.cc, $(WASM_OBJ_DIR)/%.wasm, $(RE2_RE2_SRCS))
 RE2_UTIL_OBJS := $(patsubst %.cc, $(WASM_OBJ_DIR)/%.wasm, $(RE2_UTIL_SRCS))
@@ -166,6 +170,10 @@ $(LIB_OBJS): $(WASM_OBJ_DIR)/src/lib/%.wasm: src/lib/%.c
 $(LIB_MPDEC_OBJS): $(WASM_OBJ_DIR)/src/libmpdec/%.wasm: src/libmpdec/%.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
+$(SO_OBJS): $(WASM_OBJ_DIR)/%.wasm: %.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -I src -c -o $@ $<
+
 $(LIB_CPP_OBJS): $(WASM_OBJ_DIR)/src/libc++/%.wasm: src/libc++/%.cc
 	$(CXX) $(CPPFLAGS) -c -o $@ $<
 
@@ -181,7 +189,7 @@ $(TEST_OBJS): $(WASM_OBJ_DIR)/tests/%.wasm: tests/%.c
 $(TEST_CPP_OBJS): $(WASM_OBJ_DIR)/tests/%.wasm: tests/%.cc
 	$(CXX) $(CPPFLAGS) -I src -c -o $@ $<
 
-$(WASM_OBJ_DIR)/opa.wasm: $(OBJS) $(CPP_OBJS) $(LIB_OBJS) $(LIB_MPDEC_OBJS) $(LIB_CPP_OBJS) $(RE2_RE2_OBJS) $(RE2_UTIL_OBJS)
+$(WASM_OBJ_DIR)/opa.wasm: $(OBJS) $(CPP_OBJS) $(LIB_OBJS) $(LIB_MPDEC_OBJS) $(LIB_CPP_OBJS) $(RE2_RE2_OBJS) $(RE2_UTIL_OBJS) $(SO_OBJS)
 	wasm-ld \
 			--allow-undefined-file=src/undefined.symbols \
 			--no-entry \
@@ -190,7 +198,7 @@ $(WASM_OBJ_DIR)/opa.wasm: $(OBJS) $(CPP_OBJS) $(LIB_OBJS) $(LIB_MPDEC_OBJS) $(LI
 			-o $@ $^
 	@wasm2wat $(WASM_OBJ_DIR)/opa.wasm > $(WASM_OBJ_DIR)/opa.wast
 
-$(WASM_OBJ_DIR)/opa-test.wasm: $(OBJS) $(CPP_OBJS) $(LIB_OBJS) $(LIB_MPDEC_OBJS) $(LIB_CPP_OBJS) $(RE2_RE2_OBJS) $(RE2_UTIL_OBJS) $(TEST_OBJS) $(TEST_CPP_OBJS)
+$(WASM_OBJ_DIR)/opa-test.wasm: $(OBJS) $(CPP_OBJS) $(LIB_OBJS) $(LIB_MPDEC_OBJS) $(LIB_CPP_OBJS) $(RE2_RE2_OBJS) $(RE2_UTIL_OBJS) $(SO_OBJS) $(TEST_OBJS) $(TEST_CPP_OBJS)
 	@cat src/undefined.symbols tests/undefined.symbols > _obj/undefined.symbols
 	@wasm-ld \
 			--allow-undefined-file=_obj/undefined.symbols \
