@@ -83,6 +83,15 @@
 # Redirects relating to github asset downloads
 # -----------------------------------------------------------------------------
 
+# the _static binaries are a relic of the past, redirect them to their regular
+# counterparts. This needs to come before the generic download rules below.
+/downloads/:version/opa_linux_amd64_static         /downloads/:version/opa_linux_amd64         301!
+/downloads/:version/opa_linux_amd64_static.sha256  /downloads/:version/opa_linux_amd64.sha256  301!
+/downloads/:version/opa_linux_arm64_static         /downloads/:version/opa_linux_arm64         301!
+/downloads/:version/opa_linux_arm64_static.sha256  /downloads/:version/opa_linux_arm64.sha256  301!
+/downloads/:version/opa_darwin_arm64_static        /downloads/:version/opa_darwin_arm64        301!
+/downloads/:version/opa_darwin_arm64_static.sha256 /downloads/:version/opa_darwin_arm64.sha256 301!
+
 /downloads/edge/*    https://idcvpgfcikvb.objectstorage.us-ashburn-1.oci.customer-oci.com/n/idcvpgfcikvb/b/openpolicyagent-binaries/o/%2Fbinaries%2Fedge%2F:splat 200
 /downloads/latest/*  https://github.com/open-policy-agent/opa/releases/latest/download/:splat 200
 /downloads/*         https://github.com/open-policy-agent/opa/releases/download/:splat 200
