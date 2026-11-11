@@ -18,6 +18,7 @@
 //	  located  one byte, 1 if the rules have locations
 //	  offsets  rule count n, then n+1 offsets into rules, as uint32 little endian
 //	  rules    length, then the rules: rule i is offsets[i] to offsets[i+1]
+//	  keys     count, 0 or n, then the 16 bytes of each rule's ast.RuleKey
 //
 // A rule is its flags (default, else), location, annotations, head, body and
 // else branch, expressions and terms following the AST, a term as a tag and its
@@ -57,7 +58,8 @@ import (
 )
 
 // magic ends in the format version, which changes when what an OPA reads from an
-// encoding changes, or when it can't evaluate rules an older OPA compiled.
+// encoding changes, or when it can't evaluate rules an older OPA compiled
+// (TestCompiledRulesFromEarlierOPA in v1/topdown tells).
 const magic = "OPACRS\x00\x01"
 
 // Key is what compiled rules were compiled with, which decides whether a
@@ -84,10 +86,12 @@ func (k Key) Usable(version string) bool {
 	return semver.Compare(version, k.Version) >= 0
 }
 
-// Set is a compiled rule set to encode.
+// Set is a compiled rule set to encode, with the keys of its rules' source
+// texts, if there are any; see ast.LazyRuleSet.
 type Set struct {
 	Summary *ast.RuleSetSummary
 	Rules   []*ast.Rule
+	Keys    []ast.RuleKey
 }
 
 // Write encodes sets, compiled with key. The locations of rules are encoded as
@@ -123,6 +127,13 @@ func Write(w io.Writer, key Key, sets []Set, sources Sources) error {
 		body.Write(offsets)
 		body.Write(binary.AppendUvarint(nil, uint64(len(e.buf))))
 		body.Write(e.buf)
+		if len(set.Keys) != 0 && len(set.Keys) != len(set.Rules) {
+			return fmt.Errorf("rule set %v: %d keys for %d rules", set.Summary.Path, len(set.Keys), len(set.Rules))
+		}
+		body.Write(binary.AppendUvarint(nil, uint64(len(set.Keys))))
+		for _, k := range set.Keys {
+			body.Write(k[:])
+		}
 	}
 
 	out := append([]byte(magic), binary.AppendUvarint(nil, uint64(len(keyJSON)))...)
@@ -190,6 +201,19 @@ func Read(bs []byte, sources Sources) (Key, []*ast.LazyRuleSet, error) {
 		rules := int(d.uvarint())
 		offsets := d.take(4 * (rules + 1))
 		block := d.take(int(d.uvarint()))
+		var keys []ast.RuleKey
+		if n := d.uvarint(); n > 0 && d.err == nil {
+			raw := d.take(n * len(ast.RuleKey{}))
+			if n != rules {
+				d.fail(errors.New("compiled rules: keys don't match rules"))
+			}
+			if d.err == nil {
+				keys = make([]ast.RuleKey, n)
+				for i := range keys {
+					copy(keys[i][:], raw[i*len(ast.RuleKey{}):])
+				}
+			}
+		}
 		if d.err != nil {
 			return key, nil, d.err
 		}
@@ -203,6 +227,7 @@ func Read(bs []byte, sources Sources) (Key, []*ast.LazyRuleSet, error) {
 				offsets: offsets,
 				block:   block,
 				module:  &ast.Module{Package: &ast.Package{Path: pkg}},
+				keys:    keys,
 			},
 		})
 	}
@@ -229,6 +254,17 @@ type lazyRules struct {
 	offsets []byte
 	block   []byte
 	module  *ast.Module
+	keys    []ast.RuleKey
+}
+
+// Keys returns the keys of the source of the rules of a rule set Read returned,
+// in the order of its rules, by which a parser can leave them out; see
+// ast.Rule.SourceKey. It returns nil if they weren't encoded.
+func Keys(set *ast.LazyRuleSet) []ast.RuleKey {
+	if l, ok := set.Rules.(*lazyRules); ok {
+		return l.keys
+	}
+	return nil
 }
 
 func (l *lazyRules) Len() int { return len(l.offsets)/4 - 1 }

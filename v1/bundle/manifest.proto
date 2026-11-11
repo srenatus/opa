@@ -38,6 +38,9 @@ message Manifest {
 
   // Marks the bundle's policies as generated code.
   bool generated = 8;
+
+  // Makes `opa build` compile the bundle's large rule sets into it.
+  bool compiled = 9;
 }
 
 // WasmResolver mirrors `bundle.WasmResolver` in v1/bundle/bundle.go.

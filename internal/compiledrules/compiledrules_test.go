@@ -31,7 +31,7 @@ func corpusSets(t *testing.T) ([]Set, Sources) {
 			modules[name] = m
 			src[name] = []byte(m)
 		}
-		popts := ast.ParserOptions{RegoVersion: ast.RegoV1}
+		popts := ast.ParserOptions{RegoVersion: ast.RegoV1, ProcessAnnotation: true}
 		if tc.ExperimentalKeywords {
 			popts.Capabilities = ast.CapabilitiesForThisVersion(ast.CapabilitiesExperimentalKeywords(true))
 		}
@@ -44,7 +44,16 @@ func corpusSets(t *testing.T) ([]Set, Sources) {
 				return false
 			}
 			if s, err := c.Summarize(node.Values[0].Ref().GroundPrefix()); err == nil {
-				sets = append(sets, Set{Summary: s, Rules: node.Values})
+				keys := make([]ast.RuleKey, 0, len(node.Values))
+				for _, r := range node.Values {
+					if k, ok := r.SourceKey(); ok {
+						keys = append(keys, k)
+					}
+				}
+				if len(keys) != len(node.Values) {
+					keys = nil
+				}
+				sets = append(sets, Set{Summary: s, Rules: node.Values, Keys: keys})
 			}
 			return false
 		})
@@ -78,7 +87,7 @@ func TestRoundTrip(t *testing.T) {
 		t.Fatalf("expected %d rule sets, got %d", len(sets), len(got))
 	}
 
-	rules := 0
+	rules, keyed := 0, 0
 	for i, set := range sets {
 		want, have := set.Summary, got[i].Summary
 		if !have.Path.Equal(want.Path) || !have.Head.Equal(want.Head) || types.Compare(have.Type, want.Type) != 0 ||
@@ -87,6 +96,12 @@ func TestRoundTrip(t *testing.T) {
 			t.Fatalf("summary of %v: expected %+v, got %+v", want.Path, want, have)
 		}
 
+		if !slices.Equal(Keys(got[i]), set.Keys) {
+			t.Fatalf("rule set %v: expected keys %v, got %v", want.Path, set.Keys, Keys(got[i]))
+		}
+		if set.Keys != nil {
+			keyed++
+		}
 		if n := got[i].Rules.Len(); n != len(set.Rules) {
 			t.Fatalf("rule set %v: expected %d rules, got %d", want.Path, len(set.Rules), n)
 		}
@@ -116,7 +131,10 @@ func TestRoundTrip(t *testing.T) {
 			rules++
 		}
 	}
-	t.Logf("%d rule sets, %d rules, %d bytes", len(sets), rules, buf.Len())
+	if keyed == 0 {
+		t.Error("expected rule sets with keys")
+	}
+	t.Logf("%d rule sets (%d with keys), %d rules, %d bytes", len(sets), keyed, rules, buf.Len())
 }
 
 func TestTruncated(t *testing.T) {

@@ -46,7 +46,9 @@ type Manifest struct {
 	// distinguish nil (default to [""]) from explicit-empty (owns no paths).
 	RootsSet *bool `protobuf:"varint,7,opt,name=roots_set,json=rootsSet" json:"roots_set,omitempty"`
 	// Marks the bundle's policies as generated code.
-	Generated     *bool `protobuf:"varint,8,opt,name=generated" json:"generated,omitempty"`
+	Generated *bool `protobuf:"varint,8,opt,name=generated" json:"generated,omitempty"`
+	// Makes `opa build` compile the bundle's large rule sets into it.
+	Compiled      *bool `protobuf:"varint,9,opt,name=compiled" json:"compiled,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -133,6 +135,13 @@ func (x *Manifest) GetRootsSet() bool {
 func (x *Manifest) GetGenerated() bool {
 	if x != nil && x.Generated != nil {
 		return *x.Generated
+	}
+	return false
+}
+
+func (x *Manifest) GetCompiled() bool {
+	if x != nil && x.Compiled != nil {
+		return *x.Compiled
 	}
 	return false
 }
@@ -635,7 +644,7 @@ var File_v1_bundle_manifest_proto protoreflect.FileDescriptor
 
 const file_v1_bundle_manifest_proto_rawDesc = "" +
 	"\n" +
-	"\x18v1/bundle/manifest.proto\x12\ropa.bundle.v1\x1a\x1cgoogle/protobuf/struct.proto\"\xa2\x03\n" +
+	"\x18v1/bundle/manifest.proto\x12\ropa.bundle.v1\x1a\x1cgoogle/protobuf/struct.proto\"\xbe\x03\n" +
 	"\bManifest\x12\x1a\n" +
 	"\brevision\x18\x01 \x01(\tR\brevision\x12\x14\n" +
 	"\x05roots\x18\x02 \x03(\tR\x05roots\x12/\n" +
@@ -644,7 +653,8 @@ const file_v1_bundle_manifest_proto_rawDesc = "" +
 	"\x12file_rego_versions\x18\x05 \x03(\v2-.opa.bundle.v1.Manifest.FileRegoVersionsEntryR\x10fileRegoVersions\x123\n" +
 	"\bmetadata\x18\x06 \x01(\v2\x17.google.protobuf.StructR\bmetadata\x12\x1b\n" +
 	"\troots_set\x18\a \x01(\bR\brootsSet\x12\x1c\n" +
-	"\tgenerated\x18\b \x01(\bR\tgenerated\x1aC\n" +
+	"\tgenerated\x18\b \x01(\bR\tgenerated\x12\x1a\n" +
+	"\bcompiled\x18\t \x01(\bR\bcompiled\x1aC\n" +
 	"\x15FileRegoVersionsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\"\x84\x01\n" +

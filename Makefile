@@ -529,6 +529,12 @@ else
 	@echo "Docker not installed or running. Skipping yamllint run."
 endif
 
+.PHONY: update-compiled-rules
+# After adding or changing v1 test cases. A failure of the test on unchanged
+# cases needs a format version bump in internal/compiledrules first.
+update-compiled-rules:
+	$(GO) test ./v1/topdown -run '^TestCompiledRulesFromEarlierOPA$$' -update-compiled-rules
+
 ######################################################
 #
 # Release targets

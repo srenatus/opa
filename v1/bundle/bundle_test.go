@@ -115,6 +115,12 @@ func TestManifestEqual(t *testing.T) {
 
 	m.Generated = true
 	assertEqual()
+
+	n.Compiled = true
+	assertNotEqual()
+
+	m.Compiled = true
+	assertEqual()
 }
 
 func TestBundleRegoVersion(t *testing.T) {
@@ -2361,6 +2367,7 @@ func TestRoundtrip(t *testing.T) {
 				Raw:  []byte("modules-compiled-as-wasm-binary"),
 			},
 		},
+		CompiledRules: []byte("compiled-rule-sets"),
 		Manifest: Manifest{
 			Roots:    &[]string{""},
 			Revision: "quickbrownfaux",
@@ -2524,6 +2531,36 @@ func TestWriterRejectsMixedPlanManifestFormats(t *testing.T) {
 			t.Fatalf("expected uniform-proto write to succeed, got: %v", err)
 		}
 	})
+}
+
+func TestCompiledRulesFile(t *testing.T) {
+	files := [][2]string{
+		{"/.manifest", `{"generated": true}`},
+		{"/a.rego", "package a\np := 1\n"},
+		{"/compiled_rules.bin", "compiled-rule-sets"},
+		{"/a/compiled_rules.bin", "not at the root"},
+	}
+	b, err := NewReader(archive.MustWriteTarGz(files)).Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b.CompiledRules) != "compiled-rule-sets" {
+		t.Fatalf("expected the compiled rules at the root, got %q", b.CompiledRules)
+	}
+
+	b.CompiledRules = []byte("tampered")
+	if err := b.GenerateSignature(NewSigningConfig("secret", "HS256", ""), "foo", false); err != nil {
+		t.Fatal(err)
+	}
+	b.CompiledRules = []byte("tampered again")
+	var buf bytes.Buffer
+	if err := NewWriter(&buf).Write(b); err != nil {
+		t.Fatal(err)
+	}
+	vc := NewVerificationConfig(map[string]*KeyConfig{"foo": {Key: "secret", Algorithm: "HS256"}}, "foo", "", nil)
+	if _, err := NewReader(&buf).WithBundleVerificationConfig(vc).Read(); err == nil || !strings.Contains(err.Error(), compiledRulesFile) {
+		t.Fatalf("expected verification of %v to fail, got %v", compiledRulesFile, err)
+	}
 }
 
 func TestRoundtripWithProtoManifestSigned(t *testing.T) {
@@ -3280,6 +3317,28 @@ func TestMerge(t *testing.T) {
 			},
 			wantBundle: &Bundle{
 				Manifest: Manifest{Roots: &[]string{"a", "b"}, RegoVersion: &expRegoVersion, Generated: true},
+				Data:     map[string]any{},
+			},
+		},
+		{
+			note: "compiled if all are",
+			bundles: []*Bundle{
+				{Manifest: Manifest{Roots: &[]string{"a"}, Compiled: true}, Data: map[string]any{}},
+				{Manifest: Manifest{Roots: &[]string{"b"}, Compiled: true}, Data: map[string]any{}},
+			},
+			wantBundle: &Bundle{
+				Manifest: Manifest{Roots: &[]string{"a", "b"}, RegoVersion: &expRegoVersion, Compiled: true},
+				Data:     map[string]any{},
+			},
+		},
+		{
+			note: "not compiled if one isn't",
+			bundles: []*Bundle{
+				{Manifest: Manifest{Roots: &[]string{"a"}, Compiled: true}, Data: map[string]any{}},
+				{Manifest: Manifest{Roots: &[]string{"b"}}, Data: map[string]any{}},
+			},
+			wantBundle: &Bundle{
+				Manifest: Manifest{Roots: &[]string{"a", "b"}, RegoVersion: &expRegoVersion},
 				Data:     map[string]any{},
 			},
 		},

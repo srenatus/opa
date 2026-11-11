@@ -104,6 +104,8 @@ type Compiler struct {
 	keyID                        string                     // represents the name of the default key used to verify a signed bundle
 	enableBundleLazyLoadingMode  bool                       // bundle lazy loading mode
 	metadata                     *map[string]any            // represents additional data included in .manifest file
+	generated                    bool                       // see WithGenerated
+	compiledRules                bool                       // see WithCompiledRules
 	fsys                         fs.FS                      // file system to use when loading paths
 	ns                           string
 	regoVersion                  ast.RegoVersion
@@ -274,6 +276,21 @@ func (c *Compiler) WithFollowSymlinks(yes bool) *Compiler {
 // WithMetadata sets the additional data to be included in .manifest
 func (c *Compiler) WithMetadata(metadata *map[string]any) *Compiler {
 	c.metadata = metadata
+	return c
+}
+
+// WithGenerated marks the output bundle's policies as generated code, as
+// "generated": true in its manifest does. Experimental.
+func (c *Compiler) WithGenerated(yes bool) *Compiler {
+	c.generated = yes
+	return c
+}
+
+// WithCompiledRules compiles the output bundle's large rule sets into it, as
+// "compiled": true in its manifest does: see bundle.Bundle.CompileRules. Only
+// for the rego target. Experimental.
+func (c *Compiler) WithCompiledRules(yes bool) *Compiler {
+	c.compiledRules = yes
 	return c
 }
 
@@ -468,6 +485,8 @@ func (c *Compiler) Build(ctx context.Context) error {
 	if c.metadata != nil {
 		c.bundle.Manifest.Metadata = *c.metadata
 	}
+	c.bundle.Manifest.Generated = c.bundle.Manifest.Generated || c.generated
+	c.bundle.Manifest.Compiled = c.bundle.Manifest.Compiled || c.compiledRules
 
 	c.bundle.SetManifestProto(c.target == TargetPlan && c.planFormat == PlanFormatProto)
 
@@ -477,6 +496,14 @@ func (c *Compiler) Build(ctx context.Context) error {
 		PreserveModuleRegoVersion: true,
 	}); err != nil {
 		return err
+	}
+
+	// After formatting, so that the keys of the compiled rules are those of the
+	// source written.
+	if c.bundle.Manifest.Compiled && c.target == TargetRego {
+		if err := c.bundle.CompileRules(c.capabilities, c.debug.Writer()); err != nil {
+			return err
+		}
 	}
 
 	if c.bsc != nil {

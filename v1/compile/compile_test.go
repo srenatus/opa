@@ -4605,3 +4605,47 @@ func TestPruneAnnotationsAndCommentsWithoutLocations(t *testing.T) {
 		t.Errorf("comments: %v", comments)
 	}
 }
+
+func TestCompilerBuildCompiledRules(t *testing.T) {
+	var src strings.Builder
+	src.WriteString("package authz\n\n")
+	for i := range 10 { // the fewest rules a rule set is compiled with
+		fmt.Fprintf(&src, "allow if input.user == \"user-%d\"\n", i)
+	}
+	for _, tc := range []struct {
+		generated, enabled bool
+		options            bool // set by options rather than in the manifest, not as a bundle
+	}{
+		{generated: true, enabled: true},
+		{enabled: true},
+		{generated: true},
+		{generated: true, enabled: true, options: true},
+		{enabled: true, options: true},
+	} {
+		t.Run(fmt.Sprintf("generated=%v,compiled=%v,options=%v", tc.generated, tc.enabled, tc.options), func(t *testing.T) {
+			files := map[string]string{"authz.rego": src.String()}
+			if !tc.options {
+				files[".manifest"] = fmt.Sprintf(`{"generated": %v, "compiled": %v}`, tc.generated, tc.enabled)
+			}
+			test.WithTempFS(files, func(root string) {
+				buf, dbg := bytes.NewBuffer(nil), bytes.NewBuffer(nil)
+				c := New().WithRegoVersion(ast.RegoV1).WithPaths(root).WithAsBundle(!tc.options).
+					WithOutput(buf).WithDebug(dbg)
+				if tc.options {
+					c = c.WithGenerated(tc.generated).WithCompiledRules(tc.enabled)
+				}
+				err := c.Build(t.Context())
+				if err != nil {
+					t.Fatal(err)
+				}
+				has := slices.Contains(tarEntryNames(t, bytes.NewReader(buf.Bytes())), "/compiled_rules.bin")
+				if has != tc.enabled {
+					t.Fatalf("expected compiled_rules.bin in the bundle: %v, got %v", tc.enabled, has)
+				}
+				if logged := strings.Contains(dbg.String(), "compiled rules: compiling data.authz.allow (10 rules)"); logged != tc.enabled {
+					t.Errorf("expected the rule set to be logged: %v, got %q", tc.enabled, dbg.String())
+				}
+			})
+		})
+	}
+}
