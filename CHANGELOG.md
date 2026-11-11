@@ -139,6 +139,18 @@ See [How a lookup works](https://www.openpolicyagent.org/docs/policy-performance
 
 Authored by @srenatus
 
+### Compiled rule sets in bundles
+
+When a bundle's manifest sets `"compiled": true` (experimental), `opa build` adds the bundle's large rule sets to it,
+compiled, in a file `compiled_rules.bin`. When the bundle plugin activates the bundle, OPA keeps these rules out of memory: it
+builds their rule index from the file, and reads a rule from it only when an index lookup returns that rule. For
+bundles of many rules, that takes most of the memory the compiled policies hold, and most of the time
+activation takes, off OPA; queries over rules the rule index can narrow are about as fast as before. OPA uses the
+file only if it was built by the same or an older OPA version, and compiles the policies as usual otherwise. See
+[Compiled Rule Sets](https://www.openpolicyagent.org/docs/management-bundles#compiled-rule-sets).
+
+Authored by @srenatus
+
 ## 1.22.4
 
 This is a fix release for a vulnerability (CVE-2026-97054) in Go's

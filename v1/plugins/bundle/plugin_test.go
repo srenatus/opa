@@ -35,11 +35,13 @@ import (
 	testLog "github.com/open-policy-agent/opa/v1/logging/test"
 	"github.com/open-policy-agent/opa/v1/metrics"
 	"github.com/open-policy-agent/opa/v1/plugins"
+	"github.com/open-policy-agent/opa/v1/rego"
 	"github.com/open-policy-agent/opa/v1/runtime/info"
 	"github.com/open-policy-agent/opa/v1/storage"
 	"github.com/open-policy-agent/opa/v1/storage/disk"
 	"github.com/open-policy-agent/opa/v1/storage/inmem"
 	inmemtst "github.com/open-policy-agent/opa/v1/storage/inmem/test"
+	"github.com/open-policy-agent/opa/v1/topdown"
 	"github.com/open-policy-agent/opa/v1/util"
 	"github.com/open-policy-agent/opa/v1/util/test"
 )
@@ -8681,4 +8683,232 @@ func TestPluginSupersededETags(t *testing.T) {
 			}
 		})
 	}
+}
+
+func newStartedTestPlugin(tb testing.TB, manager *plugins.Manager, names ...string) *Plugin {
+	tb.Helper()
+	if err := manager.Start(tb.Context()); err != nil {
+		tb.Fatal(err)
+	}
+	tb.Cleanup(func() { manager.Stop(context.WithoutCancel(tb.Context())) })
+	p := New(&Config{Bundles: map[string]*Source{}}, manager)
+	for _, name := range names {
+		p.config.Bundles[name] = &Source{}
+		p.status[name] = &Status{Name: name, Metrics: metrics.New()}
+		p.downloaders[name] = download.New(download.Config{}, manager.Client(""), name)
+	}
+	return p
+}
+
+func TestPluginCompiledRules(t *testing.T) {
+	t.Parallel()
+	for _, generated := range []bool{true, false} {
+		t.Run(fmt.Sprintf("generated=%v", generated), func(t *testing.T) {
+			t.Parallel()
+			testPluginCompiledRules(t, generated)
+		})
+	}
+}
+
+// Activating a bundle whose compiled rules can't be used warns, with why.
+func TestPluginWarnsOfUnusedCompiledRules(t *testing.T) {
+	t.Parallel()
+	for _, tamper := range []bool{false, true} {
+		logger := testLog.New()
+		manager, err := plugins.New(nil, "test-instance-id", inmemtst.New(), plugins.Logger(logger))
+		if err != nil {
+			t.Fatal(err)
+		}
+		plugin := newStartedTestPlugin(t, manager, "gen")
+
+		var src strings.Builder
+		src.WriteString("package gen\n\n")
+		for i := range 1000 {
+			fmt.Fprintf(&src, "allow if input.x == \"v%d\"\n", i)
+		}
+		b := bundle.Bundle{
+			Data:     map[string]any{},
+			Manifest: bundle.Manifest{Revision: "r", Roots: &[]string{"gen"}},
+			Modules:  []bundle.ModuleFile{{Path: "/gen/a.rego", URL: "/gen/a.rego", Raw: []byte(src.String())}},
+		}
+		if err := b.CompileRules(nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		if tamper {
+			b.Modules[0].Raw = bytes.Replace(b.Modules[0].Raw, []byte(`"v1"`), []byte(`"w1"`), 1)
+		}
+		var buf bytes.Buffer
+		if err := bundle.Write(&buf, b); err != nil {
+			t.Fatal(err)
+		}
+		read, err := bundle.NewCustomReader(bundle.NewTarballLoaderWithBaseURL(&buf, "")).WithBundleName("gen").WithCompiledRules().Read()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := plugin.oneShot(t.Context(), "gen", download.Update{Bundle: &read, Metrics: metrics.New()}); err != nil {
+			t.Fatal(err)
+		}
+
+		var warned bool
+		for _, e := range logger.Entries() {
+			if e.Level == logging.Warn && strings.Contains(e.Message, "compiled from source, not from its compiled rules: compiled rules: /gen/a.rego isn't the module they were compiled from") {
+				warned = true
+			}
+		}
+		if warned != tamper {
+			t.Errorf("tamper=%v: expected a warning %v, got %v", tamper, tamper, logger.Entries())
+		}
+	}
+}
+
+// Compiled rules keep their print calls; a manager dropping print statements
+// erases them, as it does compiling from source.
+func TestPluginCompiledRulesCallingPrint(t *testing.T) {
+	t.Parallel()
+	var src strings.Builder
+	src.WriteString("package gen\n\n")
+	for i := range 20 {
+		fmt.Fprintf(&src, "allow if {\n\tprint(\"matched\", input.x)\n\tinput.x == \"v%d\"\n}\n\n", i)
+	}
+	b := bundle.Bundle{
+		Data:     map[string]any{},
+		Manifest: bundle.Manifest{Revision: "r", Roots: &[]string{"gen"}},
+		Modules:  []bundle.ModuleFile{{Path: "/gen/a.rego", URL: "/gen/a.rego", Raw: []byte(src.String())}},
+	}
+	if err := b.CompileRules(nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if err := bundle.Write(&buf, b); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, prints := range []bool{false, true} {
+		var printed bytes.Buffer
+		hook := topdown.NewPrintHook(&printed)
+		manager, err := plugins.New(nil, "test-instance-id", inmemtst.New(), plugins.EnablePrintStatements(prints), plugins.PrintHook(hook))
+		if err != nil {
+			t.Fatal(err)
+		}
+		plugin := newStartedTestPlugin(t, manager, "gen")
+		read, err := bundle.NewCustomReader(bundle.NewTarballLoaderWithBaseURL(bytes.NewReader(buf.Bytes()), "")).WithBundleName("gen").WithCompiledRules().Read()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := plugin.oneShot(t.Context(), "gen", download.Update{Bundle: &read, Metrics: metrics.New()}); err != nil {
+			t.Fatal(err)
+		}
+		c := manager.GetCompiler()
+		if len(c.LazyRuleSets()) != 1 {
+			t.Fatalf("print statements %v: expected the compiled rule set used, got %d", prints, len(c.LazyRuleSets()))
+		}
+		rs, err := rego.New(rego.Compiler(c), rego.Store(manager.Store), rego.Query("data.gen.allow"),
+			rego.Input(map[string]any{"x": "v3"}), rego.PrintHook(hook)).Eval(t.Context())
+		if err != nil || len(rs) != 1 || rs[0].Expressions[0].Value != true {
+			t.Fatalf("print statements %v: expected allow, got %v (%v)", prints, rs, err)
+		}
+		if got, want := printed.String() != "", prints; got != want {
+			t.Errorf("print statements %v: printed %q", prints, printed.String())
+		}
+	}
+}
+
+func testPluginCompiledRules(t *testing.T, generated bool) {
+	plugin := newStartedTestPlugin(t, getTestManager(), "gen", "other")
+
+	gen := func(rev string, values []string, tamper bool) *bytes.Buffer {
+		var src strings.Builder
+		src.WriteString("package gen\n\n")
+		for i, v := range values {
+			fmt.Fprintf(&src, "# METADATA\n# labels:\n#   id: \"r%d\"\nallow if input.x == %q\n\n", i, v)
+		}
+		// Rules that match no input, for the set to be large enough to compile.
+		for i := range 1000 {
+			fmt.Fprintf(&src, "allow if input.x == \"pad-%d\"\n", i)
+		}
+		b := bundle.Bundle{
+			Data:     map[string]any{},
+			Manifest: bundle.Manifest{Revision: rev, Roots: &[]string{"gen", "main"}, Generated: generated},
+			Modules: []bundle.ModuleFile{
+				{Path: "/main/main.rego", URL: "/main/main.rego", Raw: []byte("package main\n\nallowed if data.gen.allow\n")},
+				{Path: "/gen/a.rego", URL: "/gen/a.rego", Raw: []byte(src.String())},
+			},
+		}
+		if err := b.CompileRules(nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		if tamper {
+			b.Modules[1].Raw = bytes.Replace(b.Modules[1].Raw, []byte(`== "`), []byte(`== "!`), 1)
+		}
+		var buf bytes.Buffer
+		if err := bundle.Write(&buf, b); err != nil {
+			t.Fatal(err)
+		}
+		return &buf
+	}
+	other := func(rev string) *bytes.Buffer {
+		return archive.MustWriteTarGz([][2]string{{"/.manifest", `{"revision": "` + rev + `", "roots": ["o"]}`}, {"/o/o.rego", "package o\n\nx if input.o\n"}})
+	}
+	activate := func(name string, tarball io.Reader) {
+		t.Helper()
+		b, err := bundle.NewCustomReader(bundle.NewTarballLoaderWithBaseURL(tarball, "")).
+			WithProcessAnnotations(true).
+			WithBundleName(name).
+			WithCompiledRules().
+			Read()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := plugin.oneShot(t.Context(), name, download.Update{Bundle: &b, Metrics: metrics.New()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	check := func(lazy int, allowed map[string]bool) {
+		t.Helper()
+		c := plugin.manager.GetCompiler()
+		if n := len(c.LazyRuleSets()); n != lazy {
+			t.Fatalf("expected %d lazy rule sets, got %d", lazy, n)
+		}
+		txn := storage.NewTransactionOrDie(t.Context(), plugin.manager.Store)
+		stored, err := plugin.manager.Store.(storage.CompiledRules).GetCompiledRules(t.Context(), txn)
+		plugin.manager.Store.Abort(t.Context(), txn)
+		if err != nil || (len(stored) == 1) != (lazy > 0) {
+			t.Fatalf("expected the store to keep compiled rules: %v, got %v (%v)", lazy > 0, stored, err)
+		}
+		parsed := len(c.GetRulesExact(ast.MustParseRef("data.gen.allow")))
+		if lazy > 0 && parsed != 1 { // the placeholder
+			t.Fatalf("expected the lazy rule set's placeholder only, got %d rules", parsed)
+		}
+		if lazy > 0 {
+			r, err := c.LazyRuleSets()[0].Rules.Rule(0)
+			if err != nil || (r.Location != nil) == generated {
+				t.Fatalf("expected a location: %v, got %v (%v)", !generated, r.Location, err)
+			}
+		}
+		for x, exp := range allowed {
+			rs, err := rego.New(rego.Compiler(c), rego.Store(plugin.manager.Store), rego.Query("data.main.allowed"),
+				rego.Input(map[string]any{"x": x})).Eval(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := len(rs) == 1 && rs[0].Expressions[0].Value == true; got != exp {
+				t.Errorf("input %q: expected allowed %v, got %v", x, exp, got)
+			}
+		}
+	}
+
+	activate("other", other("1"))
+	activate("gen", gen("1", []string{"a", "b", "c"}, false))
+	check(1, map[string]bool{"a": true, "c": true, "d": false})
+
+	// Activating another bundle carries the lazy rule set over.
+	activate("other", other("2"))
+	check(1, map[string]bool{"a": true, "c": true, "d": false})
+
+	activate("gen", gen("2", []string{"b", "d"}, false))
+	check(1, map[string]bool{"a": false, "b": true, "d": true})
+
+	// Compiled rules that don't match the source aren't used.
+	activate("gen", gen("3", []string{"e", "f"}, true))
+	check(0, map[string]bool{"e": false, "!e": true, "f": true})
 }

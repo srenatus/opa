@@ -18,6 +18,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/open-policy-agent/opa/internal/compiledrules"
 	"github.com/open-policy-agent/opa/internal/debug"
 	"github.com/open-policy-agent/opa/internal/file/archive"
 	"github.com/open-policy-agent/opa/internal/ref"
@@ -4638,9 +4639,27 @@ func TestCompilerBuildCompiledRules(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				has := slices.Contains(tarEntryNames(t, bytes.NewReader(buf.Bytes())), "/compiled_rules.bin")
-				if has != tc.enabled {
-					t.Fatalf("expected compiled_rules.bin in the bundle: %v, got %v", tc.enabled, has)
+				b, err := bundle.NewReader(buf).WithCompiledRules().Read()
+				if err != nil {
+					t.Fatal(err)
+				}
+				// The reader leaves the rules of compiled rule sets out.
+				if parsed := len(b.Modules[0].Parsed.Rules); (parsed == 0) != tc.enabled {
+					t.Fatalf("expected compiled rules to be used: %v, got %d parsed rules", tc.enabled, parsed)
+				}
+				if !tc.enabled {
+					return
+				}
+				_, sets, err := compiledrules.Read(b.CompiledRules, func(string) []byte { return b.Modules[0].Raw })
+				if err != nil {
+					t.Fatal(err)
+				}
+				r, err := sets[0].Rules.Rule(3)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if tc.generated && r.Location != nil || !tc.generated && (r.Location == nil || r.Location.Row != 6 || r.Location.File != b.Modules[0].Path) {
+					t.Errorf("expected a location: %v, got %v", !tc.generated, r.Location)
 				}
 				if logged := strings.Contains(dbg.String(), "compiled rules: compiling data.authz.allow (10 rules)"); logged != tc.enabled {
 					t.Errorf("expected the rule set to be logged: %v, got %q", tc.enabled, dbg.String())

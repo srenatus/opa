@@ -68,6 +68,7 @@ type Downloader struct {
 	lazyLoadingMode    bool
 	bundleName         string
 	bundleParserOpts   ast.ParserOptions
+	compiledRules      bool
 }
 
 type supersededETag struct {
@@ -141,6 +142,13 @@ func (d *Downloader) WithLazyLoadingMode(yes bool) *Downloader {
 // WithBundleName specifies the name of the downloaded bundle.
 func (d *Downloader) WithBundleName(bundleName string) *Downloader {
 	d.bundleName = bundleName
+	return d
+}
+
+// WithCompiledRules makes the downloader use compiled rule sets of bundles, see
+// bundle.Reader.WithCompiledRules. Experimental.
+func (d *Downloader) WithCompiledRules() *Downloader {
+	d.compiledRules = true
 	return d
 }
 
@@ -395,6 +403,9 @@ func (d *Downloader) download(ctx context.Context, m metrics.Metrics) (*download
 
 			if d.sizeLimitBytes != nil {
 				reader = reader.WithSizeLimitBytes(*d.sizeLimitBytes)
+			}
+			if d.compiledRules {
+				reader = reader.WithCompiledRules()
 			}
 
 			if d.logger.GetLevel() >= logging.Debug {

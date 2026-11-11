@@ -446,6 +446,7 @@ func (p *Plugin) loadAndActivateBundlesFromDisk(ctx context.Context) {
 			p.checkPluginReadiness()
 
 			p.log(name).Debug("Bundle loaded from disk and activated successfully.")
+			p.logCompiledRulesUnused(name, b)
 			numActivatedBundles++
 		}
 
@@ -499,7 +500,8 @@ func (p *Plugin) newDownloader(name string, source *Source, bundles map[string]*
 		WithBundlePersistence(p.persistBundle(name, bundles)).
 		WithLazyLoadingMode(true).
 		WithBundleName(name).
-		WithBundleParserOpts(p.manager.ParserOptions())
+		WithBundleParserOpts(p.manager.ParserOptions()).
+		WithCompiledRules()
 }
 
 func (p *Plugin) oneShot(ctx context.Context, name string, u download.Update) error {
@@ -595,6 +597,7 @@ func (p *Plugin) process(ctx context.Context, name string, u download.Update) er
 		} else {
 			p.log(name).Info("Bundle loaded and activated successfully.")
 		}
+		p.logCompiledRulesUnused(name, u.Bundle)
 		p.etags[name] = u.ETag
 
 		// If the plugin wasn't ready yet then check if we are now after activating this bundle.
@@ -789,9 +792,22 @@ func (p *Plugin) loadBundleFromDisk(path, name string, src *Source) (*bundle.Bun
 	// Persisted bundles were downloaded, so they keep the legacy manifest placement.
 	warn := p.log(name).Warn
 	if src != nil {
-		return bundleUtils.LoadBundleFromDiskForRegoVersion(p.manager.ParserOptions().RegoVersion, path, bundleName, src.Signing, warn)
+		return bundleUtils.LoadBundleFromDiskForRegoVersion(p.manager.ParserOptions().RegoVersion, path, bundleName, src.Signing, warn, p.compiledRules)
 	}
-	return bundleUtils.LoadBundleFromDiskForRegoVersion(p.manager.ParserOptions().RegoVersion, path, bundleName, nil, warn)
+	return bundleUtils.LoadBundleFromDiskForRegoVersion(p.manager.ParserOptions().RegoVersion, path, bundleName, nil, warn, p.compiledRules)
+}
+
+// compiledRules makes a reader use compiled rule sets of bundles.
+func (p *Plugin) compiledRules(r *bundle.Reader) *bundle.Reader {
+	return r.WithCompiledRules()
+}
+
+// logCompiledRulesUnused warns when b carries compiled rule sets that weren't
+// used: its policies were compiled from source, with the memory that takes.
+func (p *Plugin) logCompiledRulesUnused(name string, b *bundle.Bundle) {
+	if err := b.CompiledRulesUnused(); err != nil {
+		p.log(name).Warn("Bundle policies compiled from source, not from its compiled rules: %v", err)
+	}
 }
 
 func (p *Plugin) log(name string) logging.Logger {
@@ -910,6 +926,7 @@ func (fl *fileLoader) oneShot(ctx context.Context) (err error) {
 		WithSizeLimitBytes(fl.sizeLimitBytes).
 		WithRegoVersion(fl.bundleParserOpts.RegoVersion).
 		WithProcessAnnotations(fl.bundleParserOpts.ProcessAnnotation).
+		WithCompiledRules().
 		Read()
 	u.Error = err
 	if err == nil {

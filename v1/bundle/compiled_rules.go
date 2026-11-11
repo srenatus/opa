@@ -136,6 +136,17 @@ func (b *Bundle) compileRules(opts compileRulesOptions) error {
 	return nil
 }
 
+// WithCompiledRules makes the reader use a bundle's compiled rule sets: it
+// leaves their rules out of the modules it parses, and the bundle carries the
+// sets to activation.
+// The reader parses all rules if the compiled rules are for a newer OPA or
+// don't match the source.
+// Experimental.
+func (r *Reader) WithCompiledRules() *Reader {
+	r.compiledRules = true
+	return r
+}
+
 // moduleSources gives the raw source of each module by its path, which is the
 // file of the locations of its rules.
 func moduleSources(modules []ModuleFile) compiledrules.Sources {

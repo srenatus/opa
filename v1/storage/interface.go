@@ -155,6 +155,17 @@ type Policy interface {
 	DeletePolicy(context.Context, Transaction, string) error
 }
 
+// CompiledRules is an optional interface of stores that keep the compiled rule
+// sets of bundles next to the policies they were compiled from; see
+// bundle.Bundle.CompiledRules. Experimental.
+type CompiledRules interface {
+	// UpsertCompiledRules keeps bs under name until one of the policies with
+	// the given ids is upserted or deleted.
+	UpsertCompiledRules(ctx context.Context, txn Transaction, name string, bs []byte, policies []string) error
+	// GetCompiledRules returns the compiled rule sets kept, by name.
+	GetCompiledRules(context.Context, Transaction) (map[string][]byte, error)
+}
+
 // PolicyNotSupported provides a default implementation of the policy interface
 // which may be used if the backend does not support policy storage.
 type PolicyNotSupported struct{}
