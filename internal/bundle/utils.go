@@ -97,7 +97,8 @@ func LoadBundleFromDisk(path, name string, bvc *bundle.VerificationConfig) (*bun
 
 // LoadBundleFromDiskForRegoVersion loads a persisted bundle. A non-nil
 // legacyWarn accepts the legacy manifest placement of downloaded bundles.
-func LoadBundleFromDiskForRegoVersion(regoVersion ast.RegoVersion, path, name string, bvc *bundle.VerificationConfig, legacyWarn func(string, ...any)) (*bundle.Bundle, error) {
+// configure sets up the reader further.
+func LoadBundleFromDiskForRegoVersion(regoVersion ast.RegoVersion, path, name string, bvc *bundle.VerificationConfig, legacyWarn func(string, ...any), configure ...func(*bundle.Reader) *bundle.Reader) (*bundle.Bundle, error) {
 	bundlePath := filepath.Join(path, name, "bundle.tar.gz")
 
 	_, err := os.Stat(bundlePath)
@@ -116,6 +117,9 @@ func LoadBundleFromDiskForRegoVersion(regoVersion ast.RegoVersion, path, name st
 		}
 		if legacyWarn != nil {
 			r = r.WithLegacyManifestPlacement(legacyWarn)
+		}
+		for _, f := range configure {
+			r = f(r)
 		}
 
 		b, err := r.Read()

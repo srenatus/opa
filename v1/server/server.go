@@ -30,6 +30,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/open-policy-agent/opa/internal/compiledrules"
 	"github.com/open-policy-agent/opa/internal/json/patch"
 	"github.com/open-policy-agent/opa/internal/server/bodylimit"
 	"github.com/open-policy-agent/opa/v1/ast"
@@ -2084,7 +2085,7 @@ func (s *Server) v1PoliciesDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	modules, err := s.loadModules(r.Context(), txn)
+	modules, lazy, err := s.loadModules(r.Context(), txn)
 	if err != nil {
 		s.abortAuto(r.Context(), txn, w, err)
 		return
@@ -2093,6 +2094,9 @@ func (s *Server) v1PoliciesDelete(w http.ResponseWriter, r *http.Request) {
 	delete(modules, id)
 
 	c := ast.NewCompiler().SetErrorLimit(s.errLimit)
+	for _, set := range lazy {
+		c = c.WithLazyRuleSet(set)
+	}
 
 	m.Timer(metrics.RegoModuleCompile).Start()
 
@@ -2140,11 +2144,18 @@ func (s *Server) v1PoliciesGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	c := s.getCompiler()
+	module, err := compiledrules.ModuleWithLazyRules(c.Modules[path], bs, c.LazyRuleSets())
+	if err != nil {
+		writer.ErrorAuto(w, err)
+		return
+	}
+
 	resp := types.PolicyGetResponseV1{
 		Result: types.PolicyV1{
 			ID:  path,
 			Raw: util.ByteSliceToString(bs),
-			AST: s.getCompiler().Modules[path],
+			AST: module,
 		},
 	}
 
@@ -2178,10 +2189,15 @@ func (s *Server) v1PoliciesList(w http.ResponseWriter, r *http.Request) {
 			writer.ErrorAuto(w, err)
 			return
 		}
+		module, err := compiledrules.ModuleWithLazyRules(c.Modules[id], bs, c.LazyRuleSets())
+		if err != nil {
+			writer.ErrorAuto(w, err)
+			return
+		}
 		policy := types.PolicyV1{
 			ID:  id,
 			Raw: util.ByteSliceToString(bs),
-			AST: c.Modules[id],
+			AST: module,
 		}
 		policies = append(policies, policy)
 	}
@@ -2260,7 +2276,7 @@ func (s *Server) v1PoliciesPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	modules, err := s.loadModules(ctx, txn)
+	modules, lazy, err := s.loadModules(ctx, txn)
 	if err != nil {
 		s.abortAuto(ctx, txn, w, err)
 		return
@@ -2272,6 +2288,9 @@ func (s *Server) v1PoliciesPut(w http.ResponseWriter, r *http.Request) {
 		SetErrorLimit(s.errLimit).
 		WithPathConflictsCheck(storage.NonEmpty(ctx, s.store, txn)).
 		WithEnablePrintStatements(s.manager.EnablePrintStatements())
+	for _, set := range lazy {
+		c = c.WithLazyRuleSet(set)
+	}
 
 	m.Timer(metrics.RegoModuleCompile).Start()
 
@@ -2588,29 +2607,10 @@ func (s *Server) abortAuto(ctx context.Context, txn storage.Transaction, w http.
 	s.abort(ctx, txn, func() { writer.ErrorAuto(w, err) })
 }
 
-func (s *Server) loadModules(ctx context.Context, txn storage.Transaction) (map[string]*ast.Module, error) {
-	ids, err := s.store.ListPolicies(ctx, txn)
-	if err != nil {
-		return nil, err
-	}
-
-	modules := make(map[string]*ast.Module, len(ids))
-
-	for _, id := range ids {
-		bs, err := s.store.GetPolicy(ctx, txn, id)
-		if err != nil {
-			return nil, err
-		}
-
-		parsed, err := ast.ParseModuleWithOpts(id, util.ByteSliceToString(bs), s.manager.ParserOptions())
-		if err != nil {
-			return nil, err
-		}
-
-		modules[id] = parsed
-	}
-
-	return modules, nil
+// loadModules parses the store's policies, leaving out the rules of compiled
+// rule sets it keeps, which it returns too.
+func (s *Server) loadModules(ctx context.Context, txn storage.Transaction) (map[string]*ast.Module, []*ast.LazyRuleSet, error) {
+	return compiledrules.PoliciesFromStore(ctx, s.store, txn, s.manager.ParserOptions())
 }
 
 func (s *Server) getCompiler() *ast.Compiler {

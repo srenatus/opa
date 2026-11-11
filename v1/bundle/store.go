@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/open-policy-agent/opa/internal/compiledrules"
 	iCompiler "github.com/open-policy-agent/opa/internal/compiler"
 	"github.com/open-policy-agent/opa/internal/json/patch"
 	"github.com/open-policy-agent/opa/v1/ast"
@@ -425,7 +426,7 @@ func Deactivate(opts *DeactivateOpts) error {
 			erase[root] = struct{}{}
 		}
 	}
-	_, err := eraseBundles(opts.Ctx, opts.Store, opts.Txn, opts.ParserOptions, opts.BundleNames, erase)
+	_, err := eraseBundles(opts.Ctx, opts.Store, opts.Txn, opts.ParserOptions, nil, opts.BundleNames, erase)
 	return err
 }
 
@@ -472,11 +473,36 @@ func activateBundles(opts *ActivateOpts) error {
 		}
 	}
 
+	// The compiled rule sets of the bundles left in place stay in use.
+	var parse moduleParser
+	carried := compiledrules.FromStore(opts.Ctx, opts.Store, opts.Txn, names)
+	if carried != nil {
+		parse = carried.Parser(parseModule)
+	}
+
 	// Erase data and policies at new + old roots, and remove the old
 	// manifests before activating a new snapshot bundle.
-	remaining, err := eraseBundles(opts.Ctx, opts.Store, opts.Txn, opts.ParserOptions, names, erase)
+	remaining, err := eraseBundles(opts.Ctx, opts.Store, opts.Txn, opts.ParserOptions, parse, names, erase)
 	if err != nil {
 		return err
+	}
+	if carried != nil && !carried.Complete() {
+		// The stored policies don't hold the rules of the carried rule sets, so
+		// they are parsed in full and the rule sets aren't carried.
+		carried = nil
+		for id, p := range remaining {
+			if p.module, err = parseModule(id, p.raw, p.opts); err != nil {
+				return err
+			}
+			remaining[id] = p
+		}
+	}
+	var lazy []*ast.LazyRuleSet
+	if carried != nil {
+		lazy = carried.Sets
+	}
+	for _, name := range util.KeysSorted(snapshotBundles) {
+		lazy = append(lazy, snapshotBundles[name].lazySets...)
 	}
 
 	// Validate data in bundle does not contain paths outside the bundle's roots.
@@ -535,8 +561,14 @@ func activateBundles(opts *ActivateOpts) error {
 
 	// Compile the modules all at once to avoid having to re-do work.
 	remainingAndExtra := make(map[string]*ast.Module, len(remaining)+len(opts.ExtraModules))
-	maps.Copy(remainingAndExtra, remaining)
+	for id, p := range remaining {
+		remainingAndExtra[id] = p.module
+	}
 	maps.Copy(remainingAndExtra, opts.ExtraModules)
+
+	for _, set := range lazy {
+		opts.Compiler = opts.Compiler.WithLazyRuleSet(set)
+	}
 
 	err = compileModules(opts.Compiler, opts.Metrics, snapshotBundles, remainingAndExtra, opts.legacy, opts.AuthorizationDecisionRef, opts.ExternalSources)
 	if err != nil {
@@ -545,6 +577,22 @@ func activateBundles(opts *ActivateOpts) error {
 
 	if err := writeDataAndModules(opts.Ctx, opts.Store, opts.Txn, opts.TxnCtx, snapshotBundles, opts.legacy, opts.ParserOptions.RegoVersion); err != nil {
 		return err
+	}
+	if cs, ok := opts.Store.(storage.CompiledRules); ok {
+		for name, b := range snapshotBundles {
+			if len(b.lazySets) > 0 {
+				ids := make([]string, len(b.Modules))
+				for i, mf := range b.Modules {
+					ids[i] = modulePathWithPrefix(name, mf.Path)
+					if opts.legacy {
+						ids[i] = mf.Path
+					}
+				}
+				if err := cs.UpsertCompiledRules(opts.Ctx, opts.Txn, name, b.CompiledRules, ids); err != nil {
+					return err
+				}
+			}
+		}
 	}
 
 	if err := ast.CheckPathConflicts(opts.Compiler, storage.NonEmpty(opts.Ctx, opts.Store, opts.Txn)); len(err) > 0 {
@@ -686,12 +734,12 @@ func valueToManifest(v any) (Manifest, error) {
 
 // erase bundles by name and roots. This will clear all policies and data at its roots and remove its
 // manifest from storage.
-func eraseBundles(ctx context.Context, store storage.Store, txn storage.Transaction, parserOpts ast.ParserOptions, names map[string]struct{}, roots map[string]struct{}) (map[string]*ast.Module, error) {
+func eraseBundles(ctx context.Context, store storage.Store, txn storage.Transaction, parserOpts ast.ParserOptions, parse moduleParser, names map[string]struct{}, roots map[string]struct{}) (map[string]storedPolicy, error) {
 	if err := eraseData(ctx, store, txn, roots); err != nil {
 		return nil, err
 	}
 
-	remaining, removed, err := erasePolicies(ctx, store, txn, parserOpts, roots)
+	remaining, removed, err := erasePolicies(ctx, store, txn, parserOpts, parse, roots)
 	if err != nil {
 		return nil, err
 	}
@@ -786,7 +834,15 @@ func readModuleInfoFromStore(ctx context.Context, store storage.Store, txn stora
 	return nil, errors.New("corrupt rego version")
 }
 
-func erasePolicies(ctx context.Context, store storage.Store, txn storage.Transaction, parserOpts ast.ParserOptions, roots map[string]struct{}) (map[string]*ast.Module, []string, error) {
+// storedPolicy is a policy read back from the store, with what parsed it.
+type storedPolicy struct {
+	module *ast.Module
+	raw    []byte
+	opts   ast.ParserOptions
+}
+
+// parse, if not nil, parses the kept policies.
+func erasePolicies(ctx context.Context, store storage.Store, txn storage.Transaction, parserOpts ast.ParserOptions, parse moduleParser, roots map[string]struct{}) (map[string]storedPolicy, []string, error) {
 	ids, err := store.ListPolicies(ctx, txn)
 	if err != nil {
 		return nil, nil, err
@@ -809,7 +865,7 @@ func erasePolicies(ctx context.Context, store storage.Store, txn storage.Transac
 		return opts
 	}
 
-	remaining := map[string]*ast.Module{}
+	remaining := map[string]storedPolicy{}
 	var removed []string
 
 	for _, id := range ids {
@@ -824,8 +880,14 @@ func erasePolicies(ctx context.Context, store storage.Store, txn storage.Transac
 			return nil, nil, err
 		}
 		var module *ast.Module
+		var opts ast.ParserOptions
 		if !erase {
-			if module, err = ast.ParseModuleWithOpts(id, util.ByteSliceToString(bs), parserOptsFor(id)); err != nil {
+			opts = parserOptsFor(id)
+			parse := parse
+			if parse == nil {
+				parse = parseModule
+			}
+			if module, err = parse(id, bs, opts); err != nil {
 				return nil, nil, err
 			}
 			if erase, err = underRoots(module.Package, roots); err != nil {
@@ -840,7 +902,7 @@ func erasePolicies(ctx context.Context, store storage.Store, txn storage.Transac
 			removed = append(removed, id)
 			continue
 		}
-		remaining[id] = module
+		remaining[id] = storedPolicy{module, bs, opts}
 	}
 
 	return remaining, removed, nil

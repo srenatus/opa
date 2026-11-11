@@ -39,6 +39,7 @@ type transaction struct {
 	updates  *list.List
 	context  *storage.Context
 	policies map[string]policyUpdate
+	compiled map[string]*compiledRules // nil for dropped
 	xid      uint64
 	write    bool
 	stale    bool
@@ -212,6 +213,17 @@ func (txn *transaction) Commit() (result storage.TriggerEvent) {
 
 	if len(txn.policies) > 0 && len(txn.db.triggers) > 0 {
 		result.Policy = slices.Grow(result.Policy, len(txn.policies))
+	}
+
+	for name, c := range txn.compiled {
+		if c == nil {
+			delete(txn.db.compiled, name)
+		} else {
+			if txn.db.compiled == nil {
+				txn.db.compiled = map[string]*compiledRules{}
+			}
+			txn.db.compiled[name] = c
+		}
 	}
 
 	for id, upd := range txn.policies {
@@ -420,6 +432,63 @@ func (txn *transaction) GetPolicy(id string) ([]byte, error) {
 	return nil, errors.NewNotFoundErrorf("policy id %q", id)
 }
 
+type compiledRules struct {
+	value    []byte
+	policies map[string]struct{}
+}
+
+func (txn *transaction) GetCompiledRules() map[string][]byte {
+	result := map[string][]byte{}
+	for name, c := range txn.db.compiled {
+		if _, ok := txn.compiled[name]; !ok {
+			result[name] = c.value
+		}
+	}
+	for name, c := range txn.compiled {
+		if c != nil {
+			result[name] = c.value
+		}
+	}
+	return result
+}
+
+func (txn *transaction) UpsertCompiledRules(name string, bs []byte, policies []string) error {
+	if !txn.write {
+		return &storage.Error{Code: storage.InvalidTransactionErr, Message: "compiled rules write during read transaction"}
+	}
+	c := &compiledRules{value: bs, policies: make(map[string]struct{}, len(policies))}
+	for _, id := range policies {
+		c.policies[id] = struct{}{}
+	}
+	if txn.compiled == nil {
+		txn.compiled = map[string]*compiledRules{}
+	}
+	txn.compiled[name] = c
+	return nil
+}
+
+// dropCompiledRules drops the compiled rule sets compiled from policy id.
+func (txn *transaction) dropCompiledRules(id string) {
+	drop := func(name string, c *compiledRules) {
+		if _, ok := c.policies[id]; ok {
+			if txn.compiled == nil {
+				txn.compiled = map[string]*compiledRules{}
+			}
+			txn.compiled[name] = nil
+		}
+	}
+	for name, c := range txn.db.compiled {
+		if _, ok := txn.compiled[name]; !ok {
+			drop(name, c)
+		}
+	}
+	for name, c := range txn.compiled {
+		if c != nil {
+			drop(name, c)
+		}
+	}
+}
+
 func (txn *transaction) UpsertPolicy(id string, bs []byte) error {
 	return txn.updatePolicy(id, policyUpdate{bs, false})
 }
@@ -433,6 +502,7 @@ func (txn *transaction) updatePolicy(id string, update policyUpdate) error {
 		return &storage.Error{Code: storage.InvalidTransactionErr, Message: "policy write during read transaction"}
 	}
 
+	txn.dropCompiledRules(id)
 	if txn.policies == nil {
 		txn.policies = map[string]policyUpdate{id: update}
 	} else {

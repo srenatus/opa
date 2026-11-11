@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"io"
 	"maps"
-	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -27,6 +26,7 @@ import (
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/open-policy-agent/opa/internal/compiledrules"
 	"github.com/open-policy-agent/opa/internal/file/archive"
 	"github.com/open-policy-agent/opa/internal/merge"
 	"github.com/open-policy-agent/opa/v1/ast"
@@ -62,6 +62,12 @@ const (
 	SignaturesFile = "signatures.json"
 )
 
+// What a Reader reports in its metrics of the compiled rule sets it uses.
+const (
+	metricCompiledRuleSets = "rego_compiled_rule_sets"
+	metricCompiledRules    = "rego_compiled_rules"
+)
+
 var (
 	empty Bundle
 )
@@ -85,6 +91,15 @@ type Bundle struct {
 	lazyLoadingMode bool
 	sizeLimitBytes  int64
 	manifestProto   bool
+	lazySets        []*ast.LazyRuleSet
+	// compiledRulesUnused is why a Reader didn't use CompiledRules.
+	compiledRulesUnused error
+}
+
+// CompiledRulesUnused returns why a Reader with compiled rules compiled the
+// bundle's policies from source instead, nil if it didn't. Experimental.
+func (b *Bundle) CompiledRulesUnused() error {
+	return b.compiledRulesUnused
 }
 
 // SetManifestProto configures the bundle to serialize its manifest as
@@ -535,9 +550,10 @@ type Reader struct {
 	persist               bool
 	regoVersion           ast.RegoVersion
 	followSymlinks        bool
+	compiledRules         bool // see WithCompiledRules
 }
 
-type moduleParser func(path string, raw []byte, opts ast.ParserOptions) (*ast.Module, error)
+type moduleParser = compiledrules.ParseFunc
 
 // parseModules parses modules in place, each with popts and the rego version b
 // gives its file.
@@ -888,8 +904,33 @@ func (r *Reader) Read() (Bundle, error) {
 		popts = generatedParserOptions(popts)
 	}
 
+	parse := parseModule
+	var compiled *compiledrules.Use
+	if r.compiledRules && len(bundle.CompiledRules) > 0 {
+		var unusable error
+		if compiled, unusable = compiledrules.Usable(bundle.CompiledRules, moduleSources(modules)); unusable != nil {
+			bundle.compiledRulesUnused = unusable
+		} else {
+			parse = compiled.Parser(parseModule)
+		}
+	}
+
 	r.metrics.Timer(metrics.RegoModuleParse).Start()
-	err = parseModules(modules, popts, bundle, parseModule)
+	err = parseModules(modules, popts, bundle, parse)
+	if err == nil && compiled != nil {
+		if compiled.Complete() {
+			bundle.lazySets = compiled.Sets
+			rules := 0
+			for _, s := range compiled.Sets {
+				rules += s.Rules.Len()
+			}
+			r.metrics.Counter(metricCompiledRuleSets).Add(uint64(len(compiled.Sets)))
+			r.metrics.Counter(metricCompiledRules).Add(uint64(rules))
+		} else {
+			bundle.compiledRulesUnused = errors.New("compiled rules: they don't hold exactly the rules of the bundle's policies")
+			err = parseModules(modules, popts, bundle, parseModule)
+		}
+	}
 	r.metrics.Timer(metrics.RegoModuleParse).Stop()
 	if err != nil {
 		return empty, err
@@ -1891,14 +1932,7 @@ func dfs(value any, path string, fn func(string, any) (bool, error)) error {
 }
 
 func modulePathWithPrefix(bundleName string, modulePath string) string {
-	// Bundle names are sometimes just file paths, some of which
-	// are full urls (file:///foo/). Parse these and only use the path.
-	parsed, err := url.Parse(bundleName)
-	if err == nil {
-		return path.Join(parsed.Host, parsed.Path, modulePath)
-	}
-
-	return path.Join(bundleName, modulePath)
+	return compiledrules.PolicyID(bundleName, modulePath)
 }
 
 // IsStructuredDoc checks if the file name equals a structured file extension ex. ".json".

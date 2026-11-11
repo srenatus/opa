@@ -4046,7 +4046,7 @@ func TestErasePolicies(t *testing.T) {
 			for _, root := range tc.roots {
 				roots[root] = struct{}{}
 			}
-			remaining, _, err := erasePolicies(t.Context(), mockStore, txn, ast.ParserOptions{}, roots)
+			remaining, _, err := erasePolicies(t.Context(), mockStore, txn, ast.ParserOptions{}, nil, roots)
 			if !tc.expectErr && err != nil {
 				t.Fatalf("unepected error: %s", err)
 			} else if tc.expectErr && err == nil {

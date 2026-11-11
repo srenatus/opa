@@ -303,6 +303,10 @@ $ opa eval -b bundle.tar.gz data --format=raw
 {"http":{"example":{"authz":{"allow":true}}}}
 ```
 
+Bundles whose manifest sets `compiled` may also contain a file
+`compiled_rules.bin` at the bundle root, see
+[Compiled Rule Sets](#compiled-rule-sets).
+
 Bundle files may contain an optional `.manifest` file that stores bundle
 metadata.
 
@@ -356,6 +360,9 @@ fields:
   Glob patterns are accepted, to allow for a single entry to apply to multiple files. The behaviour is undefined
   for overlapping patterns. If a file is not matched by any pattern, the `rego_version` field is used.
   Existing bundle `rego_version` and `file_rego_versions` fields takes precedence to the `--v0-compatible` flag.
+
+- `compiled` - An optional `boolean` (experimental) that makes `opa build` add the large rule
+  sets of the bundle compiled, see [Compiled Rule Sets](#compiled-rule-sets).
 
 - `generated` - An optional `boolean` marking the bundle's policies as generated code, such
   as rules generated from a policy database. OPA then parses them without source locations,
@@ -830,6 +837,100 @@ assigning an Etag value to each bundle revision. Hence, it can figure out the ri
 
 No. OPA will activate a _delta_ bundle if all the patch operations in it were successfully applied. Note that a _snapshot_
 bundle would erase and overwrite policy and data under the manifest `roots`.
+
+### Compiled Rule Sets (Experimental) {#compiled-rule-sets}
+
+When a bundle's manifest sets `"compiled": true`, `opa build` adds a file
+`compiled_rules.bin` to its root if it holds rule sets of at least 10 rules: all
+rules of the same name, like the `allow` rules of a package. The file holds
+these rule sets compiled, in a compact encoding, and is covered by the
+bundle's signature.
+
+When the bundle plugin activates such a bundle, OPA neither parses the rules of
+these rule sets nor holds them compiled in memory. It builds their rule index
+from the file and reads a rule from it when an index lookup returns that rule.
+That takes most of the memory a bundle of many rules needs, and most of the
+time its activation takes, off OPA. Queries over rules the index can narrow
+are about as fast as before; see below.
+
+#### When to Use Them
+
+Compiled rule sets pay off for large sets of plain rules that the rule index
+can narrow, like many `allow` rules that each compare input values to
+constants (`input.user == "alice"`, `input.action in {"read", "list"}`). A query
+then decodes only the rules an index lookup returns.
+
+Rules the index can't narrow, which every query returns, are decoded once when
+the bundle is activated and kept: they cost no more to query than rules
+compiled from source, but they save no memory either. A rule set made mostly of
+such rules gains little from being compiled.
+
+With `--debug`, `opa build` logs the rule sets it compiles, and those it
+leaves out and why.
+
+#### Constraints
+
+A rule set qualifies when:
+
+- it has at least 10 rules,
+- its rules share one rule head reference without variables: `allow`,
+  `a.b.allow`, `deny contains msg` and functions like `f(x)` or `f(1)`
+  qualify, `response[x] := y` doesn't,
+- its rules are in one package, and no rule whose head reference has a
+  variable covers its path, like `b[x] := y` does `b.c`.
+
+#### Fallback
+
+OPA uses a bundle's compiled rule sets when:
+
+- the bundle plugin activates the bundle; `opa eval`, `opa test` and other
+  commands that load bundles from files compile the policies from source,
+- a compatible OPA built them: this version or an older one,
+- the modules their rules come from are those they were compiled from, byte for
+  byte.
+
+Otherwise it falls back to compiling the bundle's policies from source, as
+without compiled rule sets, and the bundle plugin logs a warning saying why
+(see [Monitoring](#monitoring)).
+
+Rule sets are compiled with `print` statements kept. If OPA drops them, as `opa
+run` does with `--log-level` `warn` or `error`, it erases them from the rules it
+reads, as it does compiling from source.
+
+The rules of compiled rule sets keep their source locations and annotations, as
+rules compiled from source do (neither have locations in
+[generated](#bundle-file-format) bundles). They differ from them in that:
+
+- Calls of `rego.metadata.rule` and `rego.metadata.chain` in them were resolved
+  when the bundle was built: they return the annotations as they were then, and
+  can't be resolved again when OPA compiles the bundle.
+- Traces show the names the compiler gives local variables in their rules
+  rather than those in the source.
+- Comprehensions in their rules are evaluated without an index.
+- They aren't type-checked again. When rules are added later at a path they
+  read as data, evaluation reads those rules, and recursion through them is
+  reported, but their expressions aren't checked against the new rules' types.
+- Partial evaluation may decode all rules of a set that another rule refers to,
+  when it checks whether the set depends on the unknowns.
+- Queries can't be planned for Wasm or other targets while compiled rule sets
+  are in use.
+
+The [Policy API](./rest-api#policy-api) returns the AST of a policy with the
+rules of compiled rule sets in it.
+
+#### Monitoring
+
+When the bundle plugin activates a bundle without using its compiled rule sets,
+it logs a warning that says why, for example that a newer OPA built them. The
+policies are then compiled from source, with the memory that takes. When it
+uses them, the bundle's [status](./management-status) metrics include
+`counter_rego_compiled_rule_sets` and `counter_rego_compiled_rules`: how many
+rule sets, and rules in them, it read from the file.
+
+Compiled rule sets leave much less memory for the garbage collector to scan. A
+query allocates as much as before, though, so under heavy load the collector
+runs more often. A higher `GOGC` makes it run less often; memory use stays far
+below that of compiling the rules from source.
 
 ## Implementations
 

@@ -118,6 +118,7 @@ type store struct {
 	xid      atomic.Uint64                     // last generated transaction id
 	data     any                               // raw or AST data
 	policies map[string][]byte                 // raw policies
+	compiled map[string]*compiledRules         // compiled rule sets, by name
 	triggers map[*handle]storage.TriggerConfig // registered triggers
 
 	// roundTripOnWrite, if true, means that every call to Write round trips the
@@ -286,6 +287,22 @@ func (db *store) UpsertPolicy(_ context.Context, txn storage.Transaction, id str
 		return err
 	}
 	return underlying.UpsertPolicy(id, bs)
+}
+
+func (db *store) GetCompiledRules(_ context.Context, txn storage.Transaction) (map[string][]byte, error) {
+	underlying, err := db.underlying(txn)
+	if err != nil {
+		return nil, err
+	}
+	return underlying.GetCompiledRules(), nil
+}
+
+func (db *store) UpsertCompiledRules(_ context.Context, txn storage.Transaction, name string, bs []byte, policies []string) error {
+	underlying, err := db.underlying(txn)
+	if err != nil {
+		return err
+	}
+	return underlying.UpsertCompiledRules(name, bs, policies)
 }
 
 func (db *store) DeletePolicy(_ context.Context, txn storage.Transaction, id string) error {

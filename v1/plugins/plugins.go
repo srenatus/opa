@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/open-policy-agent/opa/internal/compiledrules"
 	"github.com/open-policy-agent/opa/internal/versioncheck"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.opentelemetry.io/otel/sdk/trace"
@@ -1208,26 +1209,16 @@ func (m *Manager) onCommit(ctx context.Context, txn storage.Transaction, event s
 }
 
 func loadCompilerFromStore(ctx context.Context, store storage.Store, txn storage.Transaction, enablePrintStatements bool, popts ast.ParserOptions, externalSources *util.HasherMap[ast.Ref, ast.ExternalRuleSource]) (*ast.Compiler, error) {
-	policies, err := store.ListPolicies(ctx, txn)
+	modules, lazy, err := compiledrules.PoliciesFromStore(ctx, store, txn, popts)
 	if err != nil {
 		return nil, err
-	}
-	modules := map[string]*ast.Module{}
-
-	for _, policy := range policies {
-		bs, err := store.GetPolicy(ctx, txn, policy)
-		if err != nil {
-			return nil, err
-		}
-		module, err := ast.ParseModuleWithOpts(policy, util.ByteSliceToString(bs), popts)
-		if err != nil {
-			return nil, err
-		}
-		modules[policy] = module
 	}
 
 	compiler := ast.NewCompiler().
 		WithEnablePrintStatements(enablePrintStatements)
+	for _, set := range lazy {
+		compiler = compiler.WithLazyRuleSet(set)
+	}
 
 	if popts.RegoVersion != ast.RegoUndefined {
 		compiler = compiler.WithDefaultRegoVersion(popts.RegoVersion)
