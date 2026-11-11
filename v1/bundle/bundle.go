@@ -47,6 +47,7 @@ const (
 	ManifestExt           = ".manifest"
 	ManifestProtoExt      = ".manifest.pb"
 	signaturesFilename    = ".signatures.json"
+	compiledRulesFile     = "compiled_rules.bin"
 	patchFile             = "patch.json"
 	dataFile              = "data.json"
 	yamlDataFile          = "data.yaml"
@@ -77,6 +78,9 @@ type Bundle struct {
 	Patch       Patch
 	Etag        string
 	Raw         []Raw
+	// CompiledRules holds rule sets of the bundle compiled, see CompileRules.
+	// It is /compiled_rules.bin in the bundle. Experimental.
+	CompiledRules []byte
 
 	lazyLoadingMode bool
 	sizeLimitBytes  int64
@@ -166,8 +170,11 @@ type Manifest struct {
 	// This allows individual files to override the global Rego version specified by RegoVersion.
 	FileRegoVersions map[string]int `json:"file_rego_versions,omitempty"`
 	// Generated marks the bundle's policies as generated code, parsed without locations.
-	Generated bool           `json:"generated,omitempty"`
-	Metadata  map[string]any `json:"metadata,omitempty"`
+	Generated bool `json:"generated,omitempty"`
+	// Compiled makes opa build compile the bundle's large rule sets into it, see
+	// Bundle.CompileRules. Experimental.
+	Compiled bool           `json:"compiled,omitempty"`
+	Metadata map[string]any `json:"metadata,omitempty"`
 
 	compiledFileRegoVersions []fileRegoVersion
 }
@@ -213,7 +220,7 @@ func (m Manifest) Equal(other Manifest) bool {
 	m.Init()
 	other.Init()
 
-	if m.Revision != other.Revision || m.Generated != other.Generated {
+	if m.Revision != other.Revision || m.Generated != other.Generated || m.Compiled != other.Compiled {
 		return false
 	}
 
@@ -530,6 +537,43 @@ type Reader struct {
 	followSymlinks        bool
 }
 
+type moduleParser func(path string, raw []byte, opts ast.ParserOptions) (*ast.Module, error)
+
+// parseModules parses modules in place, each with popts and the rego version b
+// gives its file.
+func parseModules(modules []ModuleFile, popts ast.ParserOptions, b *Bundle, parse moduleParser) error {
+	opts := make([]ast.ParserOptions, len(modules))
+	for i, mf := range modules {
+		opts[i] = popts
+		if regoVersion, err := b.RegoVersionForFile(mf.RelativePath, popts.EffectiveRegoVersion()); err != nil {
+			return err
+		} else if regoVersion != ast.RegoUndefined {
+			// We don't expect ast.RegoUndefined here, but don't override
+			// configured rego-version if we do just to be extra protective
+			opts[i].RegoVersion = regoVersion
+		}
+	}
+
+	// Each module holds what parsing allocates until it's done, so parsing them
+	// all at once holds that for every module at the same time.
+	g := &errgroup.Group{}
+	g.SetLimit(runtime.GOMAXPROCS(0))
+	for i := range modules {
+		g.Go(func() (err error) {
+			mf := modules[i]
+			if mf.Parsed, err = parse(mf.Path, mf.Raw, opts[i]); err == nil {
+				modules[i] = mf
+			}
+			return err
+		})
+	}
+	return g.Wait()
+}
+
+func parseModule(path string, raw []byte, opts ast.ParserOptions) (*ast.Module, error) {
+	return ast.ParseModuleWithOpts(path, util.ByteSliceToString(raw), opts)
+}
+
 func generatedParserOptions(popts ast.ParserOptions) ast.ParserOptions {
 	// Rules are keyed by their source with annotations, attached while parsing;
 	// see ast.Rule.SourceKey.
@@ -757,6 +801,8 @@ func (r *Reader) Read() (Bundle, error) {
 				Path: path,
 				Raw:  buf.Bytes(),
 			})
+		} else if path == "/"+compiledRulesFile {
+			bundle.CompiledRules = buf.Bytes()
 		} else if base == PlanFile || base == PlanProtoFile {
 			bundle.PlanModules = append(bundle.PlanModules, PlanModuleFile{
 				URL:  f.URL(),
@@ -842,31 +888,8 @@ func (r *Reader) Read() (Bundle, error) {
 		popts = generatedParserOptions(popts)
 	}
 
-	// Each module holds what parsing allocates until it's done, so parsing them
-	// all at once holds that for every module at the same time.
-	g := &errgroup.Group{}
-	g.SetLimit(runtime.GOMAXPROCS(0))
 	r.metrics.Timer(metrics.RegoModuleParse).Start()
-
-	for i, mf := range modules {
-		mpopts := popts
-		if regoVersion, err := bundle.RegoVersionForFile(mf.RelativePath, popts.EffectiveRegoVersion()); err != nil {
-			return *bundle, err
-		} else if regoVersion != ast.RegoUndefined {
-			// We don't expect ast.RegoUndefined here, but don't override
-			// configured rego-version if we do just to be extra protective
-			mpopts.RegoVersion = regoVersion
-		}
-
-		g.Go(func() (err error) {
-			if mf.Parsed, err = ast.ParseModuleWithOpts(mf.Path, util.ByteSliceToString(mf.Raw), mpopts); err == nil {
-				modules[i] = mf
-			}
-			return err
-		})
-	}
-
-	err = g.Wait()
+	err = parseModules(modules, popts, bundle, parseModule)
 	r.metrics.Timer(metrics.RegoModuleParse).Stop()
 	if err != nil {
 		return empty, err
@@ -1056,6 +1079,10 @@ func (w *Writer) Write(bundle Bundle) error {
 			return err
 		}
 
+		if err := writeCompiledRules(tw, bundle); err != nil {
+			return err
+		}
+
 		if err := writeSignatures(tw, bundle); err != nil {
 			return err
 		}
@@ -1105,6 +1132,13 @@ func (w *Writer) writeWasm(tw *archive.TarGzWriter, bundle Bundle) error {
 	}
 
 	return tw.WriteFile(util.WithPrefix(WasmFile, "/"), bundle.Wasm)
+}
+
+func writeCompiledRules(tw *archive.TarGzWriter, bundle Bundle) error {
+	if len(bundle.CompiledRules) == 0 {
+		return nil
+	}
+	return tw.WriteFile("/"+compiledRulesFile, bundle.CompiledRules)
 }
 
 func (w *Writer) writePlan(tw *archive.TarGzWriter, bundle Bundle) error {
@@ -1165,6 +1199,14 @@ func hashBundleFiles(hash SignatureHasher, b *Bundle, useModulePath bool) ([]Fil
 			name = wasmModule.Path
 		}
 		files = append(files, NewFile(strings.TrimPrefix(filepath.ToSlash(name), "/"), hex.EncodeToString(bs), defaultHashingAlg))
+	}
+
+	if len(b.CompiledRules) != 0 {
+		bs, err := hash.HashFile(b.CompiledRules)
+		if err != nil {
+			return files, err
+		}
+		files = append(files, NewFile(compiledRulesFile, hex.EncodeToString(bs), defaultHashingAlg))
 	}
 
 	for _, planmodule := range b.PlanModules {
@@ -1478,7 +1520,7 @@ func (b Bundle) Equal(other Bundle) bool {
 		return false
 	}
 
-	return bytes.Equal(b.Wasm, other.Wasm)
+	return bytes.Equal(b.Wasm, other.Wasm) && bytes.Equal(b.CompiledRules, other.CompiledRules)
 }
 
 // Copy returns a deep copy of the bundle.
@@ -1500,6 +1542,8 @@ func (b Bundle) Copy() Bundle {
 
 	// Copy manifest.
 	b.Manifest = b.Manifest.Copy()
+
+	b.CompiledRules = slices.Clone(b.CompiledRules)
 
 	return b
 }
@@ -1632,9 +1676,11 @@ func MergeWithRegoVersion(bundles []*Bundle, regoVersion ast.RegoVersion, usePat
 
 	result := &Bundle{}
 	result.Manifest.Generated = true
+	result.Manifest.Compiled = true
 
 	for _, b := range bundles {
 		result.Manifest.Generated = result.Manifest.Generated && b.Manifest.Generated
+		result.Manifest.Compiled = result.Manifest.Compiled && b.Manifest.Compiled
 		if b.Manifest.Roots == nil {
 			return nil, errors.New("bundle manifest not initialized")
 		}

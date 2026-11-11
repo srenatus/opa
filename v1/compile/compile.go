@@ -479,6 +479,14 @@ func (c *Compiler) Build(ctx context.Context) error {
 		return err
 	}
 
+	// After formatting, so that the keys of the compiled rules are those of the
+	// source written.
+	if c.bundle.Manifest.Compiled && c.target == TargetRego {
+		if err := c.bundle.CompileRules(c.capabilities, c.debug.Writer()); err != nil {
+			return err
+		}
+	}
+
 	if c.bsc != nil {
 		if err := c.bundle.GenerateSignature(c.bsc, c.keyID, false); err != nil {
 			return err

@@ -8,6 +8,9 @@
     "Manifest": {
       "type": "object",
       "properties": {
+        "compiled": {
+          "type": "boolean"
+        },
         "file_rego_versions": {
           "type": "object",
           "additionalProperties": {
