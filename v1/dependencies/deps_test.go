@@ -595,3 +595,39 @@ func assertRefSliceEq(t *testing.T, exp, result []ast.Ref) {
 		t.Fatalf("Expected refs %v, got %v", exp, result)
 	}
 }
+
+func TestBaseAndVirtualLazyRuleSet(t *testing.T) {
+	src := "package test\n\nallow if data.x.y == input.z\n\nallow if f(input.w)\n\nf(v) if data.x.w[v]\n"
+	full := ast.MustCompileModules(map[string]string{"test.rego": src})
+	s, err := full.Summarize(ast.MustParseRef("data.test.allow"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lazy := ast.NewCompiler().WithLazyRuleSet(&ast.LazyRuleSet{Summary: s, Rules: lazyRules(full.RuleTree.Find(s.Path).Values)})
+	if lazy.Compile(map[string]*ast.Module{"test.rego": ast.MustParseModule("package test\n\nf(v) if data.x.w[v]\n")}); lazy.Failed() {
+		t.Fatal(lazy.Errors)
+	}
+
+	query := ast.MustParseBody("data.test.allow")
+	for _, deps := range []func(*ast.Compiler, any) ([]ast.Ref, error){Base, Virtual} {
+		exp, err := deps(full, query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := deps(lazy, query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.EqualFunc(exp, got, func(a, b ast.Ref) bool { return a.Equal(b) }) {
+			t.Errorf("expected %v, got %v", exp, got)
+		}
+	}
+}
+
+type lazyRules []*ast.Rule
+
+func (r lazyRules) Len() int { return len(r) }
+
+func (r lazyRules) Rule(i int) (*ast.Rule, error) { return r[i], nil }
+
+func (r lazyRules) IndexRule(i int) (*ast.Rule, error) { return r.Rule(i) }

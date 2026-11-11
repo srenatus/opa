@@ -194,3 +194,39 @@ func TestVerifyAuthorizationPolicySchema(t *testing.T) {
 		})
 	}
 }
+
+func TestVerifyAuthorizationPolicySchemaLazyRuleSet(t *testing.T) {
+	for _, tc := range []struct {
+		field string
+		err   bool
+	}{
+		{field: "identity"},
+		{field: "identty", err: true},
+	} {
+		t.Run(tc.field, func(t *testing.T) {
+			src := fmt.Sprintf("package policy\n\nallow if input.%s == \"foo\"\n\nallow if input.method == \"GET\"\n", tc.field)
+			full := ast.MustCompileModules(map[string]string{"policy.rego": src})
+			s, err := full.Summarize(ast.MustParseRef("data.policy.allow"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			lazy := ast.NewCompiler().WithLazyRuleSet(&ast.LazyRuleSet{Summary: s, Rules: lazyRules(full.RuleTree.Find(s.Path).Values)})
+			if lazy.Compile(map[string]*ast.Module{}); lazy.Failed() {
+				t.Fatal(lazy.Errors)
+			}
+			for _, c := range []*ast.Compiler{full, lazy} {
+				if err := VerifyAuthorizationPolicySchema(c, ast.MustParseRef("data.policy.allow")); (err != nil) != tc.err {
+					t.Errorf("expected an error: %v, got %v", tc.err, err)
+				}
+			}
+		})
+	}
+}
+
+type lazyRules []*ast.Rule
+
+func (r lazyRules) Len() int { return len(r) }
+
+func (r lazyRules) Rule(i int) (*ast.Rule, error) { return r[i], nil }
+
+func (r lazyRules) IndexRule(i int) (*ast.Rule, error) { return r.Rule(i) }

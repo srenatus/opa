@@ -86,16 +86,25 @@ type pendingCond struct {
 	path   int32
 }
 
-// buildCounting builds i's rules into a counting index.
-func (i *baseDocEqIndex) buildCounting(rules []*Rule) {
+// buildCounting builds the n rules at gives into a counting index, keeping in
+// rules what key gives for each rule and else branch.
+func (i *baseDocEqIndex) buildCounting(n int, at func(int) (*Rule, error), key func(*Rule) *Rule) error {
 	c := &countingIndex{table: newRefTable()}
 	t := translator{isVirtual: i.isVirtual}
 
-	i.rules = make([]*Rule, 0, len(rules))
-	i.groups = make([]int32, 0, len(rules))
-	c.pathsOf = make([]int32, 0, len(rules))
-	for idx := range rules {
-		WalkRules(rules[idx], func(rule *Rule) bool {
+	// At least one id per rule, more with else branches.
+	i.rules = make([]*Rule, 0, n)
+	i.groups = make([]int32, 0, n)
+	c.pathsOf = make([]int32, 0, n)
+	for idx := range n {
+		r, err := at(idx)
+		if err != nil {
+			return err
+		}
+		if idx == 0 {
+			i.kind = r.Head.RuleKind()
+		}
+		WalkRules(r, func(rule *Rule) bool {
 			if rule.Default {
 				i.defaultRule = rule
 				return false
@@ -105,14 +114,14 @@ func (i *baseDocEqIndex) buildCounting(rules []*Rule) {
 			}
 			// Ids ascend with priority within a ruleset; see baseDocEqIndex.rules.
 			id := int32(len(i.rules))
-			i.rules = append(i.rules, rule)
+			i.rules = append(i.rules, key(rule))
 			i.groups = append(i.groups, int32(idx))
 
 			var p projection
 			p.body(t.translate(rule))
 			if len(p.memberships) > 0 {
 				if i.memberships == nil {
-					i.memberships = make(map[int32][]membership, len(rules))
+					i.memberships = make(map[int32][]membership, n)
 				}
 				for j := range p.memberships {
 					m := &p.memberships[j]
@@ -135,6 +144,7 @@ func (i *baseDocEqIndex) buildCounting(rules []*Rule) {
 
 	c.finish(i)
 	i.counting = c
+	return nil
 }
 
 // insert adds a path to rule id: one condition per ref it constrains, which
@@ -419,12 +429,13 @@ func (c *countingIndex) traverse(resolver ValueResolver, tr *trieTraversalResult
 // against it too.
 func (i *baseDocEqIndex) countingAll(tr *trieTraversalResult) {
 	var value Value
-	for id, rule := range i.rules {
-		tr.set(int32(id))
-		if rule.Head.DocKind() != CompleteDoc || rule.Head.Value == nil {
+	for id := range int32(len(i.groups)) {
+		tr.set(id)
+		head := i.headAt(id)
+		if head.DocKind() != CompleteDoc || head.Value == nil {
 			continue
 		}
-		v := rule.Head.Value.Value
+		v := head.Value.Value
 		if !v.IsGround() || value != nil && !ValueEqual(value, v) {
 			tr.multiple = true
 		}
@@ -433,8 +444,8 @@ func (i *baseDocEqIndex) countingAll(tr *trieTraversalResult) {
 	if value == nil || tr.multiple {
 		return
 	}
-	for _, rule := range i.rules {
-		if rule.Head.DocKind() != CompleteDoc && rule.Head.Value != nil && !ValueEqual(value, rule.Head.Value.Value) {
+	for id := range int32(len(i.groups)) {
+		if head := i.headAt(id); head.DocKind() != CompleteDoc && head.Value != nil && !ValueEqual(value, head.Value.Value) {
 			tr.multiple = true
 			return
 		}

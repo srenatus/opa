@@ -95,7 +95,30 @@ func getRulesWithDependencies(compiler *ast.Compiler, ref ast.Ref) []*ast.Rule {
 		}
 	}
 
-	return allRules
+	return withLazyRules(compiler, allRules)
+}
+
+// withLazyRules puts the rules of lazy rule sets in place of their placeholders,
+// whose bodies type-check as calls of an undefined function. A placeholder whose
+// rules can't be read is kept, for the type check to fail on.
+func withLazyRules(compiler *ast.Compiler, rules []*ast.Rule) []*ast.Rule {
+	out := make([]*ast.Rule, 0, len(rules))
+	for _, r := range rules {
+		if compiler.LazyRuleSetOf(r) == nil {
+			out = append(out, r)
+			continue
+		}
+		result, err := compiler.RuleIndex(r.Ref()).AllRules(nil)
+		if err != nil {
+			out = append(out, r)
+			continue
+		}
+		if result.Default != nil {
+			out = append(out, result.Default)
+		}
+		out = append(out, result.Rules...)
+	}
+	return out
 }
 
 func inScope(rule *ast.Rule, scopes []ast.Ref) bool {

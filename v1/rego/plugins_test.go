@@ -7,6 +7,7 @@ package rego
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -65,9 +66,39 @@ func TestTargetViaPlugin(t *testing.T) {
 	assertEval(t, r, `[[{"newstate": "runtime"}]]`)
 }
 
+// Warning(philipc): This test modifies package variables, which means it cannot
+// be run safely in parallel with other tests.
+func TestTargetViaPluginLazyRuleSets(t *testing.T) {
+	RegisterPlugin("rego.target.foo", &testPlugin{})
+	t.Cleanup(resetPlugins)
+
+	full := ast.MustCompileModules(map[string]string{"test.rego": "package test\n\nallow if input.x"})
+	summary, err := full.Summarize(ast.MustParseRef("data.test.allow"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := ast.NewCompiler().WithLazyRuleSet(&ast.LazyRuleSet{Summary: summary, Rules: lazyRules(full.RuleTree.Find(summary.Path).Values)})
+	if c.Compile(map[string]*ast.Module{}); c.Failed() {
+		t.Fatal(c.Errors)
+	}
+
+	_, err = New(Compiler(c), Query("data.test.allow"), Target("foo")).PrepareForEval(t.Context())
+	if err == nil || !strings.Contains(err.Error(), "cannot plan rule sets read on demand") {
+		t.Fatalf("expected planning to be refused, got %v", err)
+	}
+}
+
+type lazyRules []*ast.Rule
+
+func (r lazyRules) Len() int { return len(r) }
+
+func (r lazyRules) Rule(i int) (*ast.Rule, error) { return r[i], nil }
+
 type defaultPlugin struct {
 	testPlugin
 }
+
+func (r lazyRules) IndexRule(i int) (*ast.Rule, error) { return r.Rule(i) }
 
 func (*defaultPlugin) IsTarget(t string) bool { return t == "" || t == "foo" }
 

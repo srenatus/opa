@@ -101,14 +101,18 @@ func base(compiler *ast.Compiler, x any, baseRefs *dependencies) error {
 
 	for _, r := range refs {
 		r = r.ConstantPrefix()
-		if rules := compiler.GetRules(r); len(rules) > 0 {
+		rules, err := rulesOf(compiler, r)
+		if err != nil {
+			return err
+		}
+		if len(rules) > 0 {
 			for _, rule := range rules {
 				if baseRefs.visited(rule) {
 					continue
 				}
 				baseRefs.visit(rule)
 				if err := base(compiler, rule, baseRefs); err != nil {
-					panic("not reached")
+					return err
 				}
 
 			}
@@ -142,11 +146,15 @@ func virtual(compiler *ast.Compiler, x any, virtualRefs *dependencies) error {
 	}
 
 	for _, r := range refs {
-		for _, rule := range compiler.GetRules(r.ConstantPrefix()) {
+		rules, err := rulesOf(compiler, r.ConstantPrefix())
+		if err != nil {
+			return err
+		}
+		for _, rule := range rules {
 			if !virtualRefs.visited(rule) {
 				virtualRefs.visit(rule)
 				if err := virtual(compiler, rule, virtualRefs); err != nil {
-					panic("not reached")
+					return err
 				}
 				virtualRefs.add(rule.Module.Package.Path.Extend(rule.Head.Ref().GroundPrefix()))
 			}
@@ -489,4 +497,29 @@ func (sv *skipVisitor) Visit(v any) bool {
 
 	sv.skipped = true
 	return false
+}
+
+// rulesOf returns the rules for ref, with the rules of lazy rule sets in place of
+// their placeholders.
+func rulesOf(compiler *ast.Compiler, ref ast.Ref) ([]*ast.Rule, error) {
+	rules := compiler.GetRules(ref)
+	if !slices.ContainsFunc(rules, func(r *ast.Rule) bool { return compiler.LazyRuleSetOf(r) != nil }) {
+		return rules, nil
+	}
+	out := make([]*ast.Rule, 0, len(rules))
+	for _, r := range rules {
+		if compiler.LazyRuleSetOf(r) == nil {
+			out = append(out, r)
+			continue
+		}
+		result, err := compiler.RuleIndex(r.Ref()).AllRules(nil)
+		if err != nil {
+			return nil, err
+		}
+		if result.Default != nil {
+			out = append(out, result.Default)
+		}
+		out = append(out, result.Rules...)
+	}
+	return out, nil
 }

@@ -3101,6 +3101,11 @@ func generateJSON(term *ast.Term, ectx *EvalContext) (any, error) {
 }
 
 func (r *Rego) planQuery(queries []ast.Body, evalQueryType queryType) (*ir.Policy, error) {
+	// The planner plans the compiler's modules, which don't hold these rules.
+	if len(r.compiler.LazyRuleSets()) > 0 {
+		return nil, errors.New("cannot plan rule sets read on demand, see ast.Compiler.WithLazyRuleSet")
+	}
+
 	// We sort the list of module names here to ensure a deterministic
 	// output ordering for the planner.
 	modules := make([]*ast.Module, 0, len(r.compiler.Modules))

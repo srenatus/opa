@@ -101,6 +101,7 @@ func TestRegoWithNotBody(t *testing.T) {
 type testOpts struct {
 	queryOpts     []func(*Query) *Query
 	parserOptions ast.ParserOptions
+	compile       func(*testing.T, map[string]string, ast.CompileOpts) *ast.Compiler
 }
 
 type testOpt func(*testOpts)
@@ -146,7 +147,13 @@ func testRun(t *testing.T, tc cases.TestCase, opts ...testOpt) {
 		modules[fmt.Sprintf("test-%d.rego", i)] = module
 	}
 
-	compiler := ast.MustCompileModulesWithOpts(modules, ast.CompileOpts{
+	compile := func(_ *testing.T, modules map[string]string, opts ast.CompileOpts) *ast.Compiler {
+		return ast.MustCompileModulesWithOpts(modules, opts)
+	}
+	if tos.compile != nil {
+		compile = tos.compile
+	}
+	compiler := compile(t, modules, ast.CompileOpts{
 		ParserOptions: tos.parserOptions,
 	})
 	query, err := compiler.QueryCompiler().Compile(ast.MustParseBody(tc.Query))

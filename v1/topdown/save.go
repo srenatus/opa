@@ -442,7 +442,7 @@ func splitPackageAndRule(path ast.Ref) (ast.Ref, ast.Ref) {
 // being saved. This check allows the evaluator to evaluate statements
 // completely during partial evaluation as long as they do not depend on any
 // kind of unknown value or statements that would generate saves.
-func saveRequired(compilerTree *ast.TreeNode, extStack *externalTreeStack, ic *inliningControl, icIgnoreInternal bool, ss *saveSet, b *bindings, x any, rec bool) bool {
+func saveRequired(compiler *ast.Compiler, extStack *externalTreeStack, ic *inliningControl, icIgnoreInternal bool, ss *saveSet, b *bindings, x any, rec bool) bool {
 
 	var found bool
 
@@ -479,9 +479,12 @@ func saveRequired(compilerTree *ast.TreeNode, extStack *externalTreeStack, ic *i
 					if !rec {
 						lookup = plugRefForRuleLookup(v, b)
 					}
-					found = anyRuleDynamic(compilerTree, extStack, lookup, ast.RulesOptions{IncludeHiddenModules: false},
+					found = anyRuleDynamic(compiler.RuleTree, extStack, lookup, ast.RulesOptions{IncludeHiddenModules: false},
 						func(rule *ast.Rule) bool {
-							return saveRequired(compilerTree, extStack, ic, icIgnoreInternal, ss, b, rule, true)
+							if set := compiler.LazyRuleSetOf(rule); set != nil {
+								return lazySaveRequired(compiler, extStack, ic, icIgnoreInternal, ss, b, set)
+							}
+							return saveRequired(compiler, extStack, ic, icIgnoreInternal, ss, b, rule, true)
 						})
 				}
 			}
@@ -492,6 +495,19 @@ func saveRequired(compilerTree *ast.TreeNode, extStack *externalTreeStack, ic *i
 	vis.Walk(x)
 
 	return found
+}
+
+// lazySaveRequired is saveRequired for the rules of a lazy rule set, which have
+// to be read to tell: one at a time, stopping at the first that requires saves,
+// as for the rules of the rule tree.
+func lazySaveRequired(compiler *ast.Compiler, extStack *externalTreeStack, ic *inliningControl, icIgnoreInternal bool, ss *saveSet, b *bindings, set *ast.LazyRuleSet) bool {
+	for i := range set.Rules.Len() {
+		rule, err := set.Rules.IndexRule(i)
+		if err != nil || saveRequired(compiler, extStack, ic, icIgnoreInternal, ss, b, rule, true) {
+			return true
+		}
+	}
+	return false
 }
 
 // plugRefForRuleLookup replaces variables in ref that are bound to a scalar with

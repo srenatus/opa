@@ -2075,6 +2075,7 @@ func TestBaseDocEqIndexing(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Unexpected error during index lookup: %v", err)
 			}
+			assertLazyAgrees(t, isVirtual, rules, false, testResolver{input: input, data: data, unknownRefs: unknownRefs, args: tc.args}, result)
 
 			if tc.checkResult != nil {
 				tc.checkResult(t, result)
@@ -2829,6 +2830,7 @@ r = local0 if {
 			if err != nil {
 				t.Fatalf("Unexpected error during index lookup: %v", err)
 			}
+			assertLazyAgrees(t, func(Ref) bool { return false }, rules, tc.disableIndexing, testResolver{input: input, unknownRefs: unknownRefs}, result)
 
 			if tc.expectedRS != nil && !NewRuleSet(result.Rules...).Equal(expectedRS) {
 				t.Errorf("Expected ruleset %v but got: %v", expectedRS, result.Rules)

@@ -72,6 +72,8 @@ type (
 		// mayEarlyExit decides whether consulting a collection pays; see gather.
 		mayEarlyExit bool
 		counting     *countingIndex
+		// lazy, if not nil, reads the rules on demand, and rules is nil.
+		lazy *lazyIndexRules
 	}
 )
 
@@ -96,13 +98,37 @@ func (i *baseDocEqIndex) Build(rules []*Rule) bool {
 	if len(rules) == 0 {
 		return false
 	}
-
-	i.kind = rules[0].Head.RuleKind()
-
-	i.buildCounting(rules)
-	i.mayEarlyExit = mayEarlyExit(i.rules)
-
+	// Rules at hand can't fail to be read.
+	_ = i.build(len(rules), func(idx int) (*Rule, error) { return rules[idx], nil }, func(r *Rule) *Rule { return r })
 	return true
+}
+
+// build builds the n rules at gives into the index. key gives what stands for a
+// rule or else branch in rules: the rule itself, or a stub that the rule's body
+// isn't kept alive by.
+func (i *baseDocEqIndex) build(n int, at func(int) (*Rule, error), key func(*Rule) *Rule) error {
+	if err := i.buildCounting(n, at, key); err != nil {
+		return err
+	}
+	i.mayEarlyExit = mayEarlyExit(i.rules)
+	return nil
+}
+
+// ruleAt returns the rule or else branch with the given id.
+func (i *baseDocEqIndex) ruleAt(id int32) (*Rule, error) {
+	if i.lazy != nil {
+		return i.lazy.rule(i.groups[id], id)
+	}
+	return i.rules[id], nil
+}
+
+// headAt returns the head of the rule or else branch with the given id, without
+// reading a lazy index's rule.
+func (i *baseDocEqIndex) headAt(id int32) *Head {
+	if i.lazy != nil {
+		return i.lazy.heads[i.lazy.headOf[id]]
+	}
+	return i.rules[id].Head
 }
 
 // mayEarlyExit reports whether a caller could stop at the first of these rules
@@ -121,7 +147,7 @@ func (i *baseDocEqIndex) Lookup(resolver ValueResolver) (*IndexResult, error) {
 		ttrPool.Put(tr)
 	}()
 
-	tr.grow(len(i.rules))
+	tr.grow(len(i.groups))
 	tr.counting = util.Or(tr.counting, func() *countingLookup { return &countingLookup{} })
 	if err := i.counting.traverse(resolver, tr, tr.counting); err != nil {
 		return nil, err
@@ -413,7 +439,10 @@ func (i *baseDocEqIndex) gather(tr *trieTraversalResult, resolver ValueResolver,
 				}
 			}
 
-			rule := i.rules[id]
+			rule, err := i.ruleAt(id)
+			if err != nil {
+				return err
+			}
 
 			if g := i.groups[id]; g != group {
 				group, root = g, rule
@@ -433,7 +462,7 @@ func (i *baseDocEqIndex) gather(tr *trieTraversalResult, resolver ValueResolver,
 
 func (i *baseDocEqIndex) AllRules(ValueResolver) (*IndexResult, error) {
 	tr := newTrieTraversalResult()
-	tr.grow(len(i.rules))
+	tr.grow(len(i.groups))
 
 	i.countingAll(tr)
 
@@ -441,9 +470,11 @@ func (i *baseDocEqIndex) AllRules(ValueResolver) (*IndexResult, error) {
 	result.Default = i.defaultRule
 	result.OnlyGroundRefs = i.onlyGroundRefs
 
-	// Every rule, so nothing is asked of the resolver and nothing can fail; see
-	// gather.
-	_ = i.gather(tr, nil, result)
+	// Every rule, so nothing is asked of the resolver; only reading a rule of a
+	// lazy index can fail.
+	if err := i.gather(tr, nil, result); err != nil {
+		return nil, err
+	}
 
 	result.EarlyExit = !tr.multiple
 

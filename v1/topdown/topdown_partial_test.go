@@ -44,7 +44,10 @@ type partialEvalTestCase struct {
 
 func TestTopDownPartialEval(t *testing.T) {
 	t.Parallel()
+	runPartialEvalTests(t, partialEvalTestCases())
+}
 
+func partialEvalTestCases() []partialEvalTestCase {
 	var domain, unrolled []string
 	for i := 1; i <= everyUnrollLimit+1; i++ {
 		domain = append(domain, strconv.Itoa(i))
@@ -56,7 +59,7 @@ func TestTopDownPartialEval(t *testing.T) {
 	nested := "[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]"
 	everyKept := "every __local0__1, __local1__1 in [" + strings.Join(domain, ", ") + "] { __local4__1 = input; __local1__1 > __local4__1 }"
 
-	tests := []partialEvalTestCase{
+	return []partialEvalTestCase{
 		{
 			note:        "empty",
 			query:       "true = true",
@@ -5157,8 +5160,6 @@ q if { input.x = 7 }`},
 			},
 		},
 	}
-
-	runPartialEvalTests(t, tests)
 }
 
 // TestTopDownPartialEvalLoopback holds the cases that need a loopback listener,
@@ -5200,6 +5201,12 @@ func TestTopDownPartialEvalLoopback(t *testing.T) {
 
 func runPartialEvalTests(t *testing.T, tests []partialEvalTestCase) {
 	t.Helper()
+	runPartialEvalTestsWith(t, tests, nil)
+}
+
+// runPartialEvalTestsWith compiles the test cases' modules with compile, if set.
+func runPartialEvalTestsWith(t *testing.T, tests []partialEvalTestCase, compile func(*testing.T, map[string]*ast.Module, ast.ParserOptions) *ast.Compiler) {
+	t.Helper()
 
 	ctx := t.Context()
 
@@ -5218,6 +5225,7 @@ func runPartialEvalTests(t *testing.T, tests []partialEvalTestCase) {
 			data:          tc.data,
 			input:         tc.input,
 			parserOptions: popts,
+			compile:       compile,
 		}
 
 		prepareTest(ctx, t, params, func(ctx context.Context, t *testing.T, f fixture) {
@@ -7545,6 +7553,7 @@ type fixtureParams struct {
 	query         string
 	input         string
 	parserOptions ast.ParserOptions
+	compile       func(*testing.T, map[string]*ast.Module, ast.ParserOptions) *ast.Compiler
 }
 
 type fixture struct {
@@ -7584,7 +7593,9 @@ func prepareTest(ctx context.Context, t *testing.T, params fixtureParams, f func
 				modules[strconv.Itoa(j)] = ast.MustParseModuleWithOpts(module, opts)
 			}
 
-			if compiler.Compile(modules); compiler.Failed() {
+			if params.compile != nil {
+				compiler = params.compile(t, modules, opts)
+			} else if compiler.Compile(modules); compiler.Failed() {
 				t.Fatal(compiler.Errors)
 			}
 

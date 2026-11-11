@@ -284,7 +284,7 @@ func (e *eval) unknownBody(body ast.Body, b *bindings) bool {
 
 func (e *eval) saveRequired(saveSet *saveSet, b *bindings, x any, rec bool) bool {
 	return saveRequired(
-		e.compiler.RuleTree, e.externalTreeStack, e.inliningControl,
+		e.compiler, e.externalTreeStack, e.inliningControl,
 		true, saveSet, b, x, rec,
 	)
 }

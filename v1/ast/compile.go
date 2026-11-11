@@ -146,6 +146,8 @@ type Compiler struct {
 	localvargen                *localVarGenerator
 	moduleLoader               ModuleLoader
 	externalSources            *util.HasherMap[Ref, ExternalRuleSource]
+	lazySets                   []*LazyRuleSet         // see WithLazyRuleSet
+	lazyRules                  map[*Rule]*LazyRuleSet // lazy rule sets by their placeholders in RuleTree
 	stages                     []stage
 	maxErrs                    int
 	errCount                   uint32
@@ -1172,6 +1174,10 @@ func (c *Compiler) buildRuleIndices() {
 			return true
 		}
 		rules := node.Values // must be len > 0 here
+		if index, ok := c.lazyIndex(rules); ok {
+			node.Index = index
+			return false
+		}
 		hasNonGroundRef := false
 		for _, r := range rules {
 			hasNonGroundRef = !r.Head.Ref().IsGround()
@@ -2261,6 +2267,7 @@ func (c *Compiler) setAnnotationSet() {
 func (c *Compiler) checkTypes() {
 	// Recursion is caught in earlier step, so this cannot fail.
 	sorted, _ := c.Graph.Sort()
+	env, sorted := c.seedLazyTypes(sorted)
 	checker := newTypeChecker().
 		WithAllowNet(c.capabilities.AllowNet).
 		WithSchemaSet(c.schemaSet).
@@ -2275,9 +2282,10 @@ func (c *Compiler) checkTypes() {
 	if c.useTypeCheckAnnotations {
 		as = c.annotationSet
 	}
-	env, errs := checker.CheckTypes(c.TypeEnv, sorted, as)
+	env, errs := checker.CheckTypes(env, sorted, as)
 	c.errRecoverable(errs...)
 	c.TypeEnv = env
+	c.checkLazyBuiltins()
 }
 
 // replacedRules returns the rules that the with modifier of any module could replace.
@@ -2549,6 +2557,13 @@ func (c *Compiler) getExports() *util.HasherMap[Ref, []Ref] {
 			refs = append(refs, rule.Head.Ref().GroundPrefix())
 		}
 		rules.Put(mod.Package.Path, refs)
+	}
+
+	// Rules of a package refer to its lazy rule sets by name too.
+	for _, set := range c.lazySets {
+		pkg := set.Summary.pkg()
+		refs, _ := rules.Get(pkg)
+		rules.Put(pkg, append(refs, set.Summary.Head.Ref().GroundPrefix()))
 	}
 
 	return rules
@@ -4140,6 +4155,7 @@ func (c *Compiler) setRuleTree() {
 		c.RuleTree.add(pkgRef, ri)
 		return false
 	})
+	c.addLazySets()
 }
 
 func (c *Compiler) setGraph() {
@@ -4147,6 +4163,7 @@ func (c *Compiler) setGraph() {
 		return c.GetRulesDynamicWithOpts(r, RulesOptions{IncludeHiddenModules: true})
 	}
 	c.Graph = NewGraph(c.Modules, list)
+	c.addLazyDependencies()
 }
 
 type queryCompiler struct {
