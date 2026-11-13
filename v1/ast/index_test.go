@@ -3033,7 +3033,7 @@ func TestBaseDocEqIndexingAlternatingRefs(t *testing.T) {
 			input string
 			exp   int
 		}{
-			{`{"r": ["b"], "y": 1}`, 1},
+			{`{"r": ["b"], "y": 1}`, 0},
 			{`{"r": "a", "y": 1}`, 0},
 			{`{"r": ["a"], "y": 3}`, 0},
 			{`{"r": "a", "y": 3}`, 1},

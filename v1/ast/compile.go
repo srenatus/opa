@@ -6601,11 +6601,95 @@ func outputVarsForTerms(expr any, safe, output VarSet) VarSet {
 }
 
 type equalityFactory struct {
-	gen *localVarGenerator
+	gen    *localVarGenerator
+	scopes []*dynamicsScope
+	bound  VarSet // locals bound to a ref by rewriteDynamics
+}
+
+// dynamicsScope holds the locals bound to refs in one body, so that rewriteDynamics
+// can reuse them for later occurrences of the same ref. An opaque scope hides the
+// enclosing ones: its body is evaluated under a "with" the enclosing bindings
+// were not computed with.
+type dynamicsScope struct {
+	refs   map[int][]refLocal
+	opaque bool
+}
+
+type refLocal struct {
+	ref   Ref
+	local *Term
 }
 
 func newEqualityFactory(gen *localVarGenerator) *equalityFactory {
-	return &equalityFactory{gen}
+	return &equalityFactory{gen: gen}
+}
+
+func (f *equalityFactory) pushScope(opaque bool) {
+	f.scopes = append(f.scopes, &dynamicsScope{opaque: opaque})
+}
+
+func (f *equalityFactory) popScope() {
+	f.scopes = f.scopes[:len(f.scopes)-1]
+}
+
+// reusable returns the local already bound to ref in a visible scope.
+func (f *equalityFactory) reusable(ref Ref) *Term {
+	if !f.reusableRef(ref) {
+		return nil
+	}
+	h := ref.Hash()
+	for i := len(f.scopes) - 1; i >= 0; i-- {
+		sc := f.scopes[i]
+		for _, e := range sc.refs[h] {
+			if e.ref.Equal(ref) {
+				return e.local
+			}
+		}
+		if sc.opaque {
+			break
+		}
+	}
+	return nil
+}
+
+func (f *equalityFactory) remember(ref Ref, local *Term) {
+	if len(f.scopes) == 0 || !f.reusableRef(ref) {
+		return
+	}
+	sc := f.scopes[len(f.scopes)-1]
+	if sc.refs == nil {
+		sc.refs = map[int][]refLocal{}
+	}
+	if f.bound == nil {
+		f.bound = NewVarSet()
+	}
+	f.bound.Add(local.Value.(Var))
+	h := ref.Hash()
+	sc.refs[h] = append(sc.refs[h], refLocal{ref, local})
+}
+
+// reusableRef reports whether ref is rooted at input or data and has no variables
+// other than locals bound by remember, so it denotes the same value wherever it occurs.
+func (f *equalityFactory) reusableRef(ref Ref) bool {
+	if len(ref) == 0 || !(ref[0].Equal(InputRootDocument) || ref[0].Equal(DefaultRootDocument)) {
+		return false
+	}
+	for _, t := range ref[1:] {
+		if t.IsGround() {
+			continue
+		}
+		ok := true
+		WalkVars(t, func(v Var) bool {
+			if !f.bound.Contains(v) {
+				ok = false
+			}
+			return !ok
+		})
+		if !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func (f *equalityFactory) Generate(other *Term) *Expr {
@@ -7176,6 +7260,17 @@ func rewriteDynamicsShallow(original *Expr, f *equalityFactory, term *Term, resu
 //
 // __local0__ = data.bar; foo(__local0__) = 1
 func rewriteDynamics(f *equalityFactory, body Body) Body {
+	return rewriteDynamicsScoped(f, false, body)
+}
+
+// rewriteDynamicsNested rewrites a body nested in original.
+func rewriteDynamicsNested(f *equalityFactory, original *Expr, body Body) Body {
+	return rewriteDynamicsScoped(f, len(original.With) > 0, body)
+}
+
+func rewriteDynamicsScoped(f *equalityFactory, opaque bool, body Body) Body {
+	f.pushScope(opaque)
+	defer f.popScope()
 	result := make(Body, 0, len(body))
 	for _, expr := range body {
 		switch {
@@ -7219,14 +7314,14 @@ func rewriteDynamicsCallExpr(f *equalityFactory, expr *Expr, result Body) Body {
 func rewriteDynamicsEveryExpr(f *equalityFactory, expr *Expr, result Body) Body {
 	ev := expr.Terms.(*Every)
 	result, ev.Domain = rewriteDynamicsOne(expr, f, ev.Domain, result)
-	ev.Body = rewriteDynamics(f, ev.Body)
+	ev.Body = rewriteDynamicsNested(f, expr, ev.Body)
 	result.Append(expr)
 	return result
 }
 
 func rewriteDynamicsNotExpr(f *equalityFactory, expr *Expr, result Body) Body {
 	n := expr.Terms.(*Not)
-	n.Body = rewriteDynamics(f, n.Body)
+	n.Body = rewriteDynamicsNested(f, expr, n.Body)
 	result.Append(expr)
 	return result
 }
@@ -7234,11 +7329,11 @@ func rewriteDynamicsNotExpr(f *equalityFactory, expr *Expr, result Body) Body {
 func rewriteDynamicsLogicalExpr(f *equalityFactory, expr *Expr, result Body) Body {
 	switch t := expr.Terms.(type) {
 	case *LogicalAnd:
-		t.Lhs = rewriteDynamics(f, t.Lhs)
-		t.Rhs = rewriteDynamics(f, t.Rhs)
+		t.Lhs = rewriteDynamicsNested(f, expr, t.Lhs)
+		t.Rhs = rewriteDynamicsNested(f, expr, t.Rhs)
 	case *LogicalOr:
-		t.Lhs = rewriteDynamics(f, t.Lhs)
-		t.Rhs = rewriteDynamics(f, t.Rhs)
+		t.Lhs = rewriteDynamicsNested(f, expr, t.Lhs)
+		t.Rhs = rewriteDynamicsNested(f, expr, t.Rhs)
 	}
 	result.Append(expr)
 	return result
@@ -7258,13 +7353,13 @@ func rewriteDynamicsInTerm(original *Expr, f *equalityFactory, term *Term, resul
 			result, v[i] = rewriteDynamicsOne(original, f, v[i], result)
 		}
 	case *ArrayComprehension:
-		v.Body = rewriteDynamics(f, v.Body)
+		v.Body = rewriteDynamicsNested(f, original, v.Body)
 	case *SetComprehension:
-		v.Body = rewriteDynamics(f, v.Body)
+		v.Body = rewriteDynamicsNested(f, original, v.Body)
 	case *ObjectComprehension:
-		v.Body = rewriteDynamics(f, v.Body)
+		v.Body = rewriteDynamicsNested(f, original, v.Body)
 	case *Not:
-		v.Body = rewriteDynamics(f, v.Body)
+		v.Body = rewriteDynamicsNested(f, original, v.Body)
 	default:
 		result, term = rewriteDynamicsOne(original, f, term, result)
 	}
@@ -7277,11 +7372,19 @@ func rewriteDynamicsOne(original *Expr, f *equalityFactory, term *Term, result B
 		for i := 1; i < len(v); i++ {
 			result, v[i] = rewriteDynamicsOne(original, f, v[i], result)
 		}
+		if len(original.With) == 0 {
+			if local := f.reusable(v); local != nil {
+				return result, local
+			}
+		}
 		generated := f.Generate(term)
 		generated.With = original.With
 		result.Append(generated)
 		connectGeneratedExprs(original, generated)
 		f.gen.recordSubjectNoCopy(generated.Operand(0).Value.(Var), term)
+		if len(original.With) == 0 {
+			f.remember(v, generated.Operand(0))
+		}
 		return result, result[len(result)-1].Operand(0)
 	case *Array:
 		for i := range v.Len() {
@@ -7332,7 +7435,7 @@ func rewriteDynamicsOne(original *Expr, f *equalityFactory, term *Term, result B
 }
 
 func rewriteDynamicsComprehensionBody(original *Expr, f *equalityFactory, body Body, term *Term) (Body, *Expr) {
-	body = rewriteDynamics(f, body)
+	body = rewriteDynamicsNested(f, original, body)
 	generated := f.Generate(term)
 	generated.With = original.With
 	return body, generated
