@@ -2187,7 +2187,7 @@ func TestTopDownPartialEval(t *testing.T) {
 		{
 			note:        "copy propagation: tautology in query, input ref",
 			query:       "input.a == input.a",
-			wantQueries: []string{`__localq1__ = input.a`},
+			wantQueries: []string{`__localq0__ = input.a`},
 		},
 		{
 			note:        "copy propagation: tautology in query, var ref, var is input",
@@ -4700,7 +4700,7 @@ q if { input.x = 7 }`},
 				p if {
 					{ input.x > 0; input.x < 10 } and true
 				}`},
-			wantQueries: []string{`{__local0__1 = input.x; gt(__local0__1, 0); __local1__1 = input.x; lt(__local1__1, 10)} and true`},
+			wantQueries: []string{`{__local0__1 = input.x; gt(__local0__1, 0); lt(__local0__1, 10)} and true`},
 		},
 
 		{
