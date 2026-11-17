@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/open-policy-agent/opa/internal/compiledrules"
 	initload "github.com/open-policy-agent/opa/internal/runtime/init"
 	"github.com/open-policy-agent/opa/v1/ast"
 	"github.com/open-policy-agent/opa/v1/bundle"
@@ -28,6 +29,18 @@ type Info struct {
 	Namespaces  map[string][]string     `json:"namespaces,omitempty"`
 	Annotations []*ast.AnnotationsRef   `json:"annotations,omitempty"`
 	Required    *ast.Capabilities       `json:"capabilities,omitempty"`
+	// CompiledRules is nil if the bundle has none.
+	CompiledRules *CompiledRules `json:"compiled_rules,omitempty"`
+}
+
+// CompiledRules describes a bundle's compiled rule sets.
+type CompiledRules struct {
+	// RuleSets and Rules are 0 if the rule sets can't be read with the bundle's
+	// modules.
+	RuleSets int `json:"rule_sets,omitempty"`
+	Rules    int `json:"rules,omitempty"`
+	// Unused is why the bundle plugin of this OPA wouldn't use them, if it wouldn't.
+	Unused string `json:"unused,omitempty"`
 }
 
 func File(path string, includeAnnotations bool) (*Info, error) {
@@ -54,6 +67,17 @@ func bundleOrDirInfoForRegoVersion(regoVersion ast.RegoVersion, path string, inc
 	}
 
 	bi := &Info{Manifest: &b.Manifest}
+	if len(b.CompiledRules) > 0 {
+		sources := make(map[string][]byte, len(b.Modules))
+		for _, mf := range b.Modules {
+			sources[mf.Path] = mf.Raw
+		}
+		sets, rules, err := compiledrules.Check(b.CompiledRules, sources)
+		bi.CompiledRules = &CompiledRules{RuleSets: sets, Rules: rules}
+		if err != nil {
+			bi.CompiledRules.Unused = err.Error()
+		}
+	}
 
 	namespaces := make(map[string][]string, len(b.Modules))
 	modules := make([]*ast.Module, 0, len(b.Modules))

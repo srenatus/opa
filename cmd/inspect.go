@@ -75,6 +75,8 @@ the following:
 * signature data
 * information about the Wasm module files
 * package- and rule annotations
+* compiled rule sets: how many rule sets and rules they hold, and whether this
+  ` + brand + ` would use them, or why not
 
 Example:
 
@@ -134,6 +136,12 @@ func doInspect(params inspectCommandParams, path string, out io.Writer) error {
 	default:
 		if hasManifest(info) {
 			if err := populateManifest(out, info.Manifest); err != nil {
+				return err
+			}
+		}
+
+		if info.CompiledRules != nil {
+			if err := populateCompiledRules(out, info.CompiledRules); err != nil {
 				return err
 			}
 		}
@@ -218,6 +226,24 @@ func populateManifest(out io.Writer, m *bundle.Manifest) error {
 	}
 
 	return nil
+}
+
+func populateCompiledRules(out io.Writer, cr *ib.CompiledRules) error {
+	used := "yes"
+	if cr.Unused != "" {
+		used = "no: " + strings.TrimPrefix(cr.Unused, "compiled rules: ")
+	}
+	var lines [][]string
+	if cr.RuleSets > 0 {
+		lines = append(lines, []string{"Rule Sets", fmt.Sprintf("%d (%d rules)", cr.RuleSets, cr.Rules)})
+	}
+	lines = append(lines, []string{"Used", used})
+	t := generateTableWithKeys(out, "field", "value")
+	if err := t.Bulk(lines); err != nil {
+		return err
+	}
+	fmt.Fprintln(out, "COMPILED RULES:")
+	return t.Render()
 }
 
 func populateNamespaces(out io.Writer, n map[string][]string) error {

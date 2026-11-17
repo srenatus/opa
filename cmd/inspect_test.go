@@ -19,6 +19,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/open-policy-agent/opa/cmd/formats"
 	"github.com/open-policy-agent/opa/internal/file/archive"
+	"github.com/open-policy-agent/opa/v1/bundle"
 	"github.com/open-policy-agent/opa/v1/util"
 
 	"github.com/open-policy-agent/opa/v1/util/test"
@@ -2473,5 +2474,45 @@ allow := true
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("expected %q in inspect output:\n%s", want, &out)
 		}
+	}
+}
+
+func TestDoInspectPrettyCompiledRules(t *testing.T) {
+	var src strings.Builder
+	src.WriteString("package authz\n\n")
+	for i := range 12 {
+		fmt.Fprintf(&src, "allow if input.user == \"user-%d\"\n", i)
+	}
+	b := bundle.Bundle{
+		Data:     map[string]any{},
+		Manifest: bundle.Manifest{Roots: &[]string{"authz"}},
+		Modules:  []bundle.ModuleFile{{Path: "/authz.rego", URL: "/authz.rego", Raw: []byte(src.String())}},
+	}
+	if err := b.CompileRules(nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if err := bundle.Write(&buf, b); err != nil {
+		t.Fatal(err)
+	}
+	bundleFile := filepath.Join(t.TempDir(), "bundle.tar.gz")
+	if err := os.WriteFile(bundleFile, buf.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	if err := doInspect(newInspectCommandParams(), bundleFile, &out); err != nil {
+		t.Fatal(err)
+	}
+	expected := `COMPILED RULES:
+┌───────────┬──────────────┐
+│   FIELD   │    VALUE     │
+├───────────┼──────────────┤
+│ Rule Sets │ 1 (12 rules) │
+│ Used      │ yes          │
+└───────────┴──────────────┘
+`
+	if !strings.Contains(out.String(), expected) {
+		t.Fatalf("expected output to contain:\n\n%v\n\ngot:\n\n%v", expected, out.String())
 	}
 }

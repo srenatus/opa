@@ -927,7 +927,7 @@ func (r *Reader) Read() (Bundle, error) {
 			r.metrics.Counter(metricCompiledRuleSets).Add(uint64(len(compiled.Sets)))
 			r.metrics.Counter(metricCompiledRules).Add(uint64(rules))
 		} else {
-			bundle.compiledRulesUnused = errors.New("compiled rules: they don't hold exactly the rules of the bundle's policies")
+			bundle.compiledRulesUnused = compiledrules.ErrIncomplete
 			err = parseModules(modules, popts, bundle, parseModule)
 		}
 	}

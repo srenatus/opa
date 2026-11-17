@@ -5,6 +5,7 @@
 package inspect
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -271,4 +272,56 @@ func wasmModulesEqual(a, b []map[string]any) bool {
 		}
 	}
 	return len(a) == len(b)
+}
+
+func TestBundleInfoCompiledRules(t *testing.T) {
+	var src strings.Builder
+	src.WriteString("package authz\n\n")
+	for i := range 12 {
+		fmt.Fprintf(&src, "allow if input.user == \"user-%d\"\n", i)
+	}
+	b := bundle.Bundle{
+		Data:     map[string]any{},
+		Manifest: bundle.Manifest{Roots: &[]string{"authz"}},
+		Modules:  []bundle.ModuleFile{{Path: "/authz.rego", URL: "/authz.rego", Raw: []byte(src.String())}},
+	}
+	if err := b.CompileRules(nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	write := func(t *testing.T, b bundle.Bundle) string {
+		t.Helper()
+		var buf bytes.Buffer
+		if err := bundle.Write(&buf, b); err != nil {
+			t.Fatal(err)
+		}
+		name := filepath.Join(t.TempDir(), "bundle.tar.gz")
+		if err := os.WriteFile(name, buf.Bytes(), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return name
+	}
+	changed := b
+	changed.Modules = []bundle.ModuleFile{{Path: "/authz.rego", URL: "/authz.rego", Raw: bytes.Replace(b.Modules[0].Raw, []byte(`"user-3"`), []byte(`"user-33"`), 1)}}
+	plain := b
+	plain.CompiledRules = nil
+
+	for _, tc := range []struct {
+		note   string
+		bundle bundle.Bundle
+		exp    *CompiledRules
+	}{
+		{note: "used", bundle: b, exp: &CompiledRules{RuleSets: 1, Rules: 12}},
+		{note: "source changed", bundle: changed, exp: &CompiledRules{Unused: "compiled rules: /authz.rego isn't the module they were compiled from"}},
+		{note: "none", bundle: plain},
+	} {
+		t.Run(tc.note, func(t *testing.T) {
+			info, err := FileForRegoVersion(ast.RegoV1, write(t, tc.bundle), false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.exp == nil && info.CompiledRules != nil || tc.exp != nil && (info.CompiledRules == nil || *info.CompiledRules != *tc.exp) {
+				t.Errorf("expected %+v, got %+v", tc.exp, info.CompiledRules)
+			}
+		})
+	}
 }
