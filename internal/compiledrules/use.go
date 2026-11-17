@@ -60,6 +60,43 @@ func Usable(bs []byte, sources Sources) (*Use, error) {
 	return nil, errors.New("compiled rules: a rule set has no keys of its rules")
 }
 
+// ErrIncomplete is why a reader doesn't use compiled rule sets whose rules aren't
+// exactly those it left out of the modules it parsed.
+var ErrIncomplete = errors.New("compiled rules: they don't hold exactly the rules of the bundle's policies")
+
+// Check returns how many rule sets and rules bs holds, none if it can't be read
+// with modules, the bundle's module sources by path, and why a bundle reader
+// using compiled rules wouldn't use them.
+func Check(bs []byte, modules map[string][]byte) (sets, rules int, unusable error) {
+	sources := func(file string) []byte { return modules[file] }
+	u, err := Usable(bs, sources)
+	if err != nil {
+		if _, s, rerr := Read(bs, sources); rerr == nil {
+			sets, rules = count(s)
+		}
+		return sets, rules, err
+	}
+	sets, rules = count(u.Sets)
+	for _, raw := range modules {
+		for _, key := range KeyedStatements(raw, true) {
+			if u.expected[key] > 0 {
+				u.left[key]++
+			}
+		}
+	}
+	if !u.Complete() {
+		return sets, rules, ErrIncomplete
+	}
+	return sets, rules, nil
+}
+
+func count(s []*ast.LazyRuleSet) (sets, rules int) {
+	for _, set := range s {
+		rules += set.Rules.Len()
+	}
+	return len(s), rules
+}
+
 // newUse returns nil if a set has no keys of its rules.
 func newUse(sets []*ast.LazyRuleSet) *Use {
 	n := 0
