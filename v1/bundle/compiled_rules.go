@@ -70,7 +70,11 @@ func (b *Bundle) compileRules(opts compileRulesOptions) error {
 	}
 
 	// With print statements, so that an OPA keeping them can use the rules too.
-	c := ast.NewCompiler().WithCapabilities(opts.capabilities).WithEnablePrintStatements(true)
+	// Nothing evaluates with this compiler, so it builds no indices.
+	c := ast.NewCompiler().
+		WithCapabilities(opts.capabilities).
+		WithEnablePrintStatements(true).
+		WithEvalMode(ast.EvalModeIR)
 	if c.Compile(modules); c.Failed() {
 		return c.Errors
 	}
