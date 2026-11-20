@@ -27,9 +27,10 @@ type compileRulesOptions struct {
 // compiled: those ast.Compiler.Summarize accepts. OPA of this version or newer
 // keeps them out of memory when it activates b, others ignore them. The rules
 // keep their locations unless b is generated, with the file names a Writer
-// gives modules by default. Capabilities are those to compile with, nil for the
-// current ones. Which rule sets it compiles, and why it leaves large ones out,
-// goes to debugOut if not nil. Experimental.
+// gives modules by default. It parses b's modules from their Raw source, as a
+// reader does, and sets their Parsed to that. Capabilities are those to compile
+// with, nil for the current ones. Which rule sets it compiles, and why it leaves
+// large ones out, goes to debugOut if not nil. Experimental.
 func (b *Bundle) CompileRules(capabilities *ast.Capabilities, debugOut io.Writer) error {
 	opts := compileRulesOptions{capabilities: capabilities, debug: debug.Discard(), minRules: 10}
 	if debugOut != nil {
@@ -55,14 +56,20 @@ func (b *Bundle) compileRules(opts compileRulesOptions) error {
 		popts = generatedParserOptions(popts)
 	}
 	popts.RegoVersion = b.RegoVersion(popts.EffectiveRegoVersion())
+	// The modules are parsed again, from the source written: their parses go
+	// first, so that both aren't held at once, and are replaced by the new ones.
 	parsed := slices.Clone(b.Modules)
 	for i, mf := range parsed {
 		if mf.URL != "" {
 			parsed[i].Path = util.WithPrefix(mf.URL, "/")
 		}
+		parsed[i].Parsed, b.Modules[i].Parsed = nil, nil
 	}
 	if err := parseModules(parsed, popts, b, parseModule); err != nil {
 		return err
+	}
+	for i := range parsed {
+		b.Modules[i].Parsed = parsed[i].Parsed
 	}
 	modules := make(map[string]*ast.Module, len(parsed))
 	for _, mf := range parsed {

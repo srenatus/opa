@@ -60,6 +60,40 @@ has(["future", "keywords", k], k)
 	}
 }
 
+// CompileRules parses the modules from their source as written, whatever they
+// were parsed from before, and keeps those parses.
+func TestCompileRulesParsesWrittenSource(t *testing.T) {
+	var buf bytes.Buffer
+	if err := NewWriter(&buf).Write(*generatedBundle(12)); err != nil {
+		t.Fatal(err)
+	}
+	read, err := NewReader(&buf).Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Formatting rewrites the source the reader parsed.
+	if err := read.FormatModulesWithOptions(BundleFormatOptions{RegoVersion: ast.RegoV1}); err != nil {
+		t.Fatal(err)
+	}
+	stale := read.Modules[0].Parsed
+	fromSource := read
+	fromSource.Modules = slices.Clone(read.Modules)
+	for i := range fromSource.Modules {
+		fromSource.Modules[i].Parsed = nil
+	}
+	for _, b := range []*Bundle{&read, &fromSource} {
+		if err := b.compileRules(compileRulesOptions{minRules: 10}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(read.CompiledRules) == 0 || !bytes.Equal(read.CompiledRules, fromSource.CompiledRules) {
+		t.Errorf("expected the same compiled rules, got %d and %d bytes", len(read.CompiledRules), len(fromSource.CompiledRules))
+	}
+	if m := read.Modules[0].Parsed; m == nil || m == stale || len(m.Rules) != len(stale.Rules) {
+		t.Errorf("expected the module parsed anew from its source, got %v", m)
+	}
+}
+
 func TestCompileRules(t *testing.T) {
 	b := generatedBundle(5)
 	if err := b.compileRules(compileRulesOptions{minRules: 3}); err != nil {

@@ -4607,6 +4607,21 @@ func TestPruneAnnotationsAndCommentsWithoutLocations(t *testing.T) {
 	}
 }
 
+// Compiling the rule sets is what checks the policies then.
+func TestCompilerBuildCompiledRulesChecks(t *testing.T) {
+	files := map[string]string{
+		".manifest":  `{"compiled": true}`,
+		"authz.rego": "package authz\n\nallow if input.x == 1\n\nbad if count(1)\n",
+	}
+	test.WithTempFS(files, func(root string) {
+		err := New().WithRegoVersion(ast.RegoV1).WithPaths(root).WithAsBundle(true).
+			WithOutput(bytes.NewBuffer(nil)).Build(t.Context())
+		if err == nil || !strings.Contains(err.Error(), "rego_type_error") {
+			t.Fatalf("expected a type error, got %v", err)
+		}
+	})
+}
+
 func TestCompilerBuildCompiledRules(t *testing.T) {
 	var src strings.Builder
 	src.WriteString("package authz\n\n")

@@ -704,6 +704,10 @@ func placeBundle(b *bundle.Bundle, prefix string) {
 
 func (c *Compiler) optimize(ctx context.Context) error {
 	if c.optimizationLevel <= 0 {
+		if c.target == TargetRego && (c.bundle.Manifest.Compiled || c.compiledRules) {
+			// Compiling the rule sets compiles, and so checks, the policies too.
+			return nil
+		}
 		var err error
 		c.compiler, err = compile(c.capabilities, c.bundle, c.debug, c.enablePrintStatements)
 		return err
